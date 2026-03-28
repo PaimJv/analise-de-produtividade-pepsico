@@ -24,7 +24,7 @@ st.set_page_config(
 init_state()
 
 # Recupera a chave de API dos secrets
-api_key = st.secrets.get("GROQ_API_KEY", None)
+# api_key = st.secrets.get("GROQ_API_KEY", None)
 
 # --- 2. INTERFACE INICIAL ---
 st.title("📊 Auditoria de Produtividade YoY")
