@@ -4,15 +4,14 @@ import gc # Garbage Collector
 from utils import mapeamento, get_yoy_data
 
 def init_state():
-    """
-    Inicializa as variáveis de estado da sessão (Session State).
-    O 'drill_path' armazena a hierarquia de navegação clicada pelo usuário.
-    """
+    """Inicializa as variáveis de estado da sessão de forma única."""
     if 'drill_path' not in st.session_state:
         st.session_state.drill_path = []
+    if 'aviso_incompleto' not in st.session_state:
+        st.session_state.aviso_incompleto = None
 
 @st.cache_data(show_spinner="Otimizando base de dados...")
-def load_and_process_base(files, apenas_completos):
+def load_and_process_base(files):
     dfs = []
     from utils import mapeamento
     
@@ -89,7 +88,7 @@ def load_and_process_base(files, apenas_completos):
     full_df = pd.concat(dfs, ignore_index=True)
     
     from utils import get_yoy_data
-    return get_yoy_data(full_df, apenas_completos=apenas_completos)
+    return get_yoy_data(full_df)
 
 # Manter as funções voltar_nivel, apply_color_logic, etc., sem alterações.
 
@@ -142,9 +141,13 @@ def get_trend_text(df_item):
 
 def prepare_report_data(df, dims, ano_at, ano_ant):
     """Pre-calcula os dados garantindo que nenhum valor seja descartado (Lossless)."""
-    todas_cols = ['Desc_Conta', 'P_L', 'VP', 'Localidade', 'Centro_Custo', 'Desc_Material']
-    
     df_clean = df.copy()
+    
+    # FORÇAMOS o Mês a ser um inteiro puro para matar a memória do tipo 'category'
+    if 'Mes' in df_clean.columns:
+        df_clean['Mes'] = df_clean['Mes'].astype(int)
+    
+    todas_cols = ['Desc_Conta', 'P_L', 'VP', 'Localidade', 'Centro_Custo', 'Desc_Material']
     
     # AJUSTE AQUI: Convertemos para string ANTES de preencher o vazio
     for c in todas_cols:
@@ -153,7 +156,12 @@ def prepare_report_data(df, dims, ano_at, ano_ant):
             df_clean[c] = df_clean[c].astype(str).replace(['nan', 'None', '<NA>'], "Não Informado")
     
     # O restante da função permanece igual
-    agrupado = df_clean.groupby(dims + ['Mes', 'Ano'], dropna=False)['Valor'].sum().unstack(level='Ano').fillna(0)
+    agrupado = (
+        df_clean.groupby(dims + ['Mes', 'Ano'], observed=True)['Valor']
+        .sum()
+        .unstack(level='Ano')
+        .fillna(0)
+    )
     
     for a in [ano_at, ano_ant]:
         if a not in agrupado.columns: agrupado[a] = 0
@@ -161,7 +169,7 @@ def prepare_report_data(df, dims, ano_at, ano_ant):
     agrupado['Delta'] = agrupado[ano_at] - agrupado[ano_ant]
     return agrupado
 
-def render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade=0, filtro_contexto=None):
+def render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade=0, filtro_contexto=None, selecao_meses=None):
     """Relatório onde o Material é puramente informativo e os totais são preservados."""
     if profundidade >= len(dims):
         return
@@ -184,30 +192,39 @@ def render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade=0,
         # Agrupamos por Mês e Material pegando TUDO do contexto atual
         df_mat_mes = df_nivel.groupby(['Mes', 'Desc_Material'])[[ano_ant, ano_at]].sum()
         
-        for m_num in sorted(df_mat_mes.index.get_level_values('Mes').unique()):
+        # Filtramos os meses aqui também para o Material não bugar
+        meses_disponiveis = sorted(df_mat_mes.index.get_level_values('Mes').unique())
+        if selecao_meses:
+            meses_disponiveis = [m for m in meses_disponiveis if m in selecao_meses]
+        
+        for m_num in meses_disponiveis:
             st.write(f"📅 **Referência: {meses_nomes.get(m_num)}**")
-            
             df_exibir = df_mat_mes.xs(m_num, level='Mes').copy()
             df_exibir.index.name = "Objeto"
             df_exibir.columns = pd.MultiIndex.from_tuples([(str(ano_ant), "Valor"), (str(ano_at), "Valor")])
             
-            # Totais do mês vindos do contexto pai (para garantir fidelidade)
-            t_ant = df_exibir[(str(ano_ant), "Valor")].replace(r'[R$\s.]', '', regex=True).replace(',', '.', regex=True).astype(float).sum() if df_exibir.empty else df_mat_mes.xs(m_num, level='Mes')[ano_ant].sum()
-            t_at = df_mat_mes.xs(m_num, level='Mes')[ano_at].sum()
-            t_ant = df_mat_mes.xs(m_num, level='Mes')[ano_ant].sum()
-
-            df_total = pd.DataFrame([[format_brl(t_ant), format_brl(t_at)]], 
-                                    columns=df_exibir.columns, index=["Total Contexto"])
-            
+            t_at = df_exibir[(str(ano_at), "Valor")].sum()
+            t_ant = df_exibir[(str(ano_ant), "Valor")].sum()
+            df_total = pd.DataFrame([[format_brl(t_ant), format_brl(t_at)]], columns=df_exibir.columns, index=["Total Contexto"])
             st.table(pd.concat([df_exibir.map(format_brl), df_total]))
-        return 
+        return
 
     # --- 🔵 NÍVEIS DE GESTÃO (CONTA, LOCALIDADE, CC, ETC) ---
     itens = sorted(df_nivel.index.get_level_values(col).unique().astype(str).tolist())
 
+    # No logic.py, dentro da render_report_ui
     for item in itens:
         df_item = df_nivel.xs(item, level=col, drop_level=False)
-        var_total = df_item['Delta'].sum()
+        
+        # 1. Calculamos o Delta Mensal
+        # delta_mensal = df_item.groupby(level='Mes')['Delta'].sum()
+        delta_mensal = df_item.groupby(level='Mes', observed=True)['Delta'].sum()
+        
+        if selecao_meses:
+            delta_mensal = delta_mensal[delta_mensal.index.isin(selecao_meses)]
+        
+        # 3. Total do período baseado APENAS nos meses filtrados
+        var_total = delta_mensal.sum()
         
         def meets_foco(val):
             if abs(val) < 1000: return False
@@ -215,7 +232,6 @@ def render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade=0,
             if "Desvios" in foco_res: return val > 0
             return True
 
-        # Verifica se há economia real nas subclasses (excluindo material da decisão de abrir expander)
         sub_impacto = False
         if profundidade < len(dims) - 1 and dims[profundidade+1] != 'Desc_Material':
             sub_impacto = df_item['Delta'].groupby(level=dims[profundidade+1]).sum().apply(meets_foco).any()
@@ -223,16 +239,24 @@ def render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade=0,
         if meets_foco(var_total) or sub_impacto:
             label = f"{'📌' if profundidade == 0 else '➥'} {item} | Total Período: {format_brl(var_total)}"
             
-            with st.expander(label):
+            # Usamos uma chave simples para o expander (apenas item e profundidade)
+            with st.expander(label, key=f"exp_{profundidade}_{item}"):
                 st.write("**Variação Mensal YoY (Impacto no Resultado):**")
-                delta_mensal = df_item.groupby(level='Mes')['Delta'].sum()
-                cols = st.columns(len(delta_mensal))
-                for idx, m_num in enumerate(delta_mensal.index):
-                    with cols[idx]:
-                        st.caption(meses_nomes.get(m_num))
-                        st.write(format_brl(delta_mensal[m_num]))
-
+                
+                if not delta_mensal.empty:
+                    # O segredo do layout: st.columns recebe o tamanho exato do que sobrou no filtro
+                    cols = st.columns(len(delta_mensal))
+                    for idx, m_num in enumerate(delta_mensal.index):
+                        with cols[idx]:
+                            st.caption(meses_nomes.get(int(m_num), f"Mês {m_num}"))
+                            st.write(format_brl(delta_mensal[m_num]))
+                
                 st.divider()
                 novo_contexto = (filtro_contexto or {}).copy()
                 novo_contexto[col] = item
-                render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade + 1, novo_contexto)
+                
+                # RECURSÃO: Passamos o selecao_meses adiante
+                render_report_ui(
+                    df_master, dims, ano_at, ano_ant, foco_res, 
+                    profundidade + 1, novo_contexto, selecao_meses=selecao_meses
+                )

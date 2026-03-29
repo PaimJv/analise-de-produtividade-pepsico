@@ -1,5 +1,6 @@
 import pandas as pd
 import streamlit as st
+import calendar
 
 # --- MAPEAMENTO DE COLUNAS ---
     # AJUSTE A ESQUERDA conforme os nomes exatos no seu arquivo CSV
@@ -63,37 +64,40 @@ def clean_data(df):
     
     return df
 
-def get_yoy_data(df, apenas_completos=True):
-    """
-    Filtra a base para permitir uma comparação Year-over-Year (YoY) justa.
-    """
-    if df.empty:
-        return pd.DataFrame(), 0, 0
+def get_yoy_data(df):
+    if df.empty or 'Ano' not in df.columns:
+        return pd.DataFrame(), 0, 0, None
         
-    # Identifica os dois anos mais recentes
     anos = sorted(df['Ano'].unique(), reverse=True)
     if len(anos) < 2:
-        return pd.DataFrame(), 0, 0
+        return pd.DataFrame(), 0, 0, None
         
     ano_at, ano_ant = anos[0], anos[1]
     
-    # Lógica de meses equivalentes
-    if apenas_completos:
-        # Pega o último mês com dados no ano atual e subtrai 1 (mês fechado)
-        mes_max_atual = df[df['Ano'] == ano_at]['Mes'].max()
-        mes_limite = mes_max_atual - 1
-        
-        # Garante que o limite seja pelo menos Janeiro
-        if mes_limite <= 0:
-            mes_limite = 1
-    else:
-        # Considera todos os meses disponíveis, incluindo o atual incompleto
-        mes_limite = df[df['Ano'] == ano_at]['Mes'].max()
-        
-    # Filtra para que ambos os anos tenham o mesmo range de meses (comparação maçã com maçã)
-    df_filtered = df[df['Mes'] <= mes_limite]
+    # 1. IDENTIFICAÇÃO DO PERÍODO DE CORTE
+    # Descobrimos qual o último mês com dados no ano ATUAL (ex: Março/2026)
+    data_max_atual = df[df['Ano'] == ano_at]['Data_Lancamento'].max()
+    mes_max = data_max_atual.month
+    dia_max = data_max_atual.day
     
-    # Retorna apenas os dados dos dois anos de interesse
+    # 2. ALINHAMENTO (O que faltou antes)
+    # Filtramos o DataFrame para que AMBOS os anos (2025 e 2026) 
+    # só mostrem meses até o 'mes_max' (ex: Jan a Mar)
+    df_filtered = df[df['Mes'] <= mes_max].copy()
+    
+    # 3. VERIFICAÇÃO DE INTEGRIDADE (Aviso de mês incompleto)
+    ultimo_dia_real = calendar.monthrange(ano_at, mes_max)[1]
+    
+    aviso_incompleto = None
+    if dia_max < ultimo_dia_real:
+        meses_nomes = {1:'Janeiro', 2:'Fevereiro', 3:'Março', 4:'Abril', 5:'Maio', 6:'Junho',
+                       7:'Julho', 8:'Agosto', 9:'Setembro', 10:'Outubro', 11:'Novembro', 12:'Dezembro'}
+        aviso_incompleto = {
+            'mes_nome': meses_nomes.get(mes_max),
+            'dia': dia_max
+        }
+
+    # Retorna apenas os dados dos dois anos dentro do range de meses alinhado
     df_final = df_filtered[df_filtered['Ano'].isin([ano_at, ano_ant])]
     
-    return df_final, ano_at, ano_ant
+    return df_final, ano_at, ano_ant, aviso_incompleto

@@ -8,22 +8,13 @@ def render_initial_sidebar():
     st.sidebar.title("🔍 Parâmetros da Auditoria")
     st.sidebar.markdown("---")
     
-    # Configuração do modo de período para o motor de processamento
-    modo = st.sidebar.radio(
-        "Modo de Comparação:", 
-        ["Meses Completos", "Incluir Mês Atual"], 
-        index=1,
-        key="radio_modo_periodo"
-    )
-    apenas_completos = (modo == "Meses Completos")
-    
     uploaded_files = st.sidebar.file_uploader(
         "Carregue os arquivos (CSV ou Excel)", 
         type=['csv', 'xlsx', 'xls'], 
         accept_multiple_files=True
     )
     
-    return apenas_completos, uploaded_files
+    return uploaded_files
 
 def render_advanced_filters(df_raw):
     st.sidebar.markdown("---")
@@ -95,12 +86,12 @@ def render_advanced_filters(df_raw):
             filtros_selecionados[dim] = escolha
 
     st.sidebar.markdown("---")
-    if st.sidebar.button("🔄 Resetar Navegação", use_container_width=True, key="btn_reset"):
-        # Limpa os estados dos filtros dinâmicos também
-        for dim in opcoes_hierarquia:
-            if f"dyn_filter_{dim}" in st.session_state:
-                st.session_state[f"dyn_filter_{dim}"] = []
-        st.session_state.drill_path = []
-        st.rerun()
+    # if st.sidebar.button("🔄 Resetar Navegação", use_container_width=True, key="btn_reset"):
+    #     # Limpa os estados dos filtros dinâmicos também
+    #     for dim in opcoes_hierarquia:
+    #         if f"dyn_filter_{dim}" in st.session_state:
+    #             st.session_state[f"dyn_filter_{dim}"] = []
+    #     st.session_state.drill_path = []
+    #     st.rerun()
 
     return selecao_meses, dimensoes_ia, foco_resultado, filtros_selecionados

@@ -1,8 +1,8 @@
 import streamlit as st
 from logic import init_state, load_and_process_base, voltar_nivel, apply_color_logic
 from sidebar import render_initial_sidebar, render_advanced_filters
-from components import plot_drilldown_chart, render_dynamic_table
-import os, sys
+from components import render_dynamic_table
+import sys
 import gc
 
 # --- 0. COMPATIBILIDADE EXECUTÁVEL ---
@@ -37,7 +37,7 @@ st.caption("Análise de Variação de Custos com Auditoria Exaustiva por IA")
 st.markdown("---")
 
 # Renderiza a sidebar inicial
-apenas_completos, uploaded_files = render_initial_sidebar()
+uploaded_files = render_initial_sidebar()
 
 # Lógica para detectar se os arquivos mudaram (para resetar o cache da sessão)
 current_files_hash = str([f.name for f in uploaded_files]) + str(len(uploaded_files))
@@ -53,7 +53,7 @@ if len(uploaded_files) >= 2:
     # Só processa se não houver nada no estado da sessão
     if st.session_state.df_raw is None:
         with st.spinner("🚀 Otimizando base de dados (Limpando colunas excedentes)..."):
-            res, at, ant = load_and_process_base(uploaded_files, apenas_completos)
+            res, at, ant, aviso = load_and_process_base(uploaded_files)
             
             if isinstance(res, str):
                 st.error(f"Erro no processamento: {res}")
@@ -62,6 +62,7 @@ if len(uploaded_files) >= 2:
                 st.session_state.df_raw = res
                 st.session_state.ano_at = at
                 st.session_state.ano_ant = ant
+                st.session_state.aviso_incompleto = aviso # Salva no estado
                 gc.collect() # Limpeza de memória imediata
 
     # Atalhos para facilitar o uso no restante do código
@@ -87,7 +88,10 @@ if len(uploaded_files) >= 2:
         if col in df_active.columns:
             df_active = df_active[df_active[col].astype(str) == str(val)]
 
-    # Breadcrumbs
+    if st.session_state.aviso_incompleto:
+            a = st.session_state.aviso_incompleto
+            st.warning(f"⚠️ **Atenção:** O mês de **{a['mes_nome']}** está incompleto no relatório (registros apenas até o dia **{a['dia']}**).")
+
     path_txt = " > ".join([str(v) for c, v in st.session_state.drill_path]) if st.session_state.drill_path else "Corporativo"
     st.info(f"📍 **Localização:** `Início > {path_txt}`")
 
@@ -149,11 +153,18 @@ if len(uploaded_files) >= 2:
             st.warning("Selecione as dimensões na barra lateral para o relatório detalhado.")
         else:
             from logic import render_report_ui, prepare_report_data            
-            with st.spinner("Gerando auditoria detalhada..."):
-                # Passamos o df_filtrado para garantir fidelidade ao contexto global
-                df_master = prepare_report_data(df_filtrado, dimensoes_ia, ano_at, ano_ant)
-                render_report_ui(df_master, dimensoes_ia, ano_at, ano_ant, foco_res)
-
+            
+            # Criamos uma string única da seleção atual (ex: "1-2" para Jan e Fev)
+            filtro_id = "-".join(map(str, sorted(meses_filtro)))
+            
+            # O st.empty() garante que o espaço possa ser limpo
+            placeholder = st.empty()
+            
+            with placeholder.container(): # <--- ADICIONE ESTA LINHA
+                with st.spinner("Gerando auditoria detalhada..."):
+                    df_master = prepare_report_data(df_filtrado, dimensoes_ia, ano_at, ano_ant)
+                    render_report_ui(df_master, dimensoes_ia, ano_at, ano_ant, foco_res, selecao_meses=meses_filtro)
+        
     else:
         # Nível Final (Material)
         st.success("🎯 Detalhe máximo atingido (Análise por Material).")
