@@ -39,8 +39,18 @@ st.markdown("---")
 # Renderiza a sidebar inicial
 uploaded_files = render_initial_sidebar()
 
+# Proteção contra None: Se não houver arquivos, o hash é uma string vazia
+if uploaded_files:
+    # Caso o Streamlit retorne um único objeto em vez de lista (segurança extra)
+    if isinstance(uploaded_files, list):
+        current_files_hash = str([f.name for f in uploaded_files]) + str(len(uploaded_files))
+    else:
+        current_files_hash = uploaded_files.name
+else:
+    current_files_hash = ""
+
 # Lógica para detectar se os arquivos mudaram (para resetar o cache da sessão)
-current_files_hash = str([f.name for f in uploaded_files]) + str(len(uploaded_files))
+# current_files_hash = str([f.name for f in uploaded_files]) + str(len(uploaded_files))
 
 if uploaded_files and current_files_hash != st.session_state.last_files_hash:
     st.session_state.df_raw = None # Força reprocessamento
