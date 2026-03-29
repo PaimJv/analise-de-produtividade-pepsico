@@ -1,17 +1,9 @@
 import pandas as pd
 import streamlit as st
 
-def clean_data(df):
-    """
-    Realiza a limpeza, padronização de colunas e criação da 
-    coluna concatenada oficial (Desc_Conta).
-    """
-    # 1. Limpeza preventiva: remove espaços em branco invisíveis nos nomes das colunas
-    df.columns = df.columns.str.strip()
-
-    # --- MAPEAMENTO DE COLUNAS ---
+# --- MAPEAMENTO DE COLUNAS ---
     # AJUSTE A ESQUERDA conforme os nomes exatos no seu arquivo CSV
-    mapeamento = {
+mapeamento = {
         'Dt.lçto.': 'Data_Lancamento', 
         'LINHA P&L': 'P_L',
         'VP': 'VP',
@@ -22,8 +14,15 @@ def clean_data(df):
         'Texto breve material': 'Desc_Material',
         'Valor/moeda objeto': 'Valor',
         'DIRETORIA': 'Diretoria'
-    }
-    
+}
+
+def clean_data(df):
+    """
+    Realiza a limpeza e padronização utilizando o mapeamento global.    
+    """
+    # 1. Limpeza preventiva: remove espaços em branco invisíveis nos nomes das colunas
+    df.columns = df.columns.str.strip()
+     
     # Renomeia as colunas baseadas no dicionário acima
     df = df.rename(columns=mapeamento)
 

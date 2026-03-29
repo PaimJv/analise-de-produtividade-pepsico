@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
-from utils import clean_data, get_yoy_data
+import gc # Garbage Collector
+from utils import mapeamento, get_yoy_data
 
 def init_state():
     """
@@ -10,51 +11,87 @@ def init_state():
     if 'drill_path' not in st.session_state:
         st.session_state.drill_path = []
 
-@st.cache_data(show_spinner="Processando base de dados...")
+@st.cache_data(show_spinner="Otimizando base de dados...")
 def load_and_process_base(files, apenas_completos):
-    """
-    Faz o carregamento, limpeza e preparação YoY dos dados.
-    Suporta CSV (UTF-8/Latin-1) e Excel (XLSX/XLS).
-    """
-    try:
-        dfs = []
-        for f in files:
-            # 1. Identifica a extensão e lê com o motor correto
+    dfs = []
+    from utils import mapeamento
+    
+    for f in files:
+        try:
+            # 1. IDENTIFICAÇÃO DE ENCODING (utf-8-sig mata o erro do ï»¿)
+            encoding_tentativa = 'utf-8-sig' 
             if f.name.endswith('.csv'):
                 try:
-                    # Tenta ler como UTF-8
-                    df_temp = pd.read_csv(f, sep=None, engine='python', encoding='utf-8-sig')
-                except UnicodeDecodeError:
-                    # Se falhar (erro 0xa4), tenta Latin-1 (padrão Excel brasileiro)
-                    f.seek(0) # Volta ao início do arquivo para reler
-                    df_temp = pd.read_csv(f, sep=None, engine='python', encoding='latin-1')
-            
-            elif f.name.endswith(('.xlsx', '.xls')):
-                # Lê a primeira aba do Excel
-                df_temp = pd.read_excel(f, sheet_name=0)
-            
+                    df_header = pd.read_csv(f, sep=None, engine='python', encoding=encoding_tentativa, nrows=2)
+                except:
+                    encoding_tentativa = 'latin-1'
+                    f.seek(0)
+                    df_header = pd.read_csv(f, sep=None, engine='python', encoding=encoding_tentativa, nrows=2)
+                f.seek(0)
             else:
-                continue # Pula arquivos não suportados
+                df_header = pd.read_excel(f, nrows=2)
 
-            # 2. Limpeza de cabeçalhos (evita o erro KeyError: 'Ano')
-            df_temp.columns = df_temp.columns.astype(str).str.strip()
+            # 2. MAPEAMENTO FLEXÍVEL
+            colunas_reais = df_header.columns.tolist()
+            col_map_arquivo = {c.strip().lower(): c for c in colunas_reais}
+            map_limpo = {k.strip().lower(): v for k, v in mapeamento.items()}
+            
+            tradução_final = {}
+            colunas_para_ler = []
+            
+            for k_limpo, v_sistema in map_limpo.items():
+                if k_limpo in col_map_arquivo:
+                    nome_original = col_map_arquivo[k_limpo]
+                    tradução_final[nome_original] = v_sistema
+                    colunas_para_ler.append(nome_original)
 
-            # 3. Aplica a limpeza e adiciona à lista
-            dfs.append(clean_data(df_temp))
+            # 3. LEITURA COMPLETA
+            if f.name.endswith('.csv'):
+                df_temp = pd.read_csv(f, usecols=colunas_para_ler, sep=None, engine='python', encoding=encoding_tentativa)
+            else:
+                df_temp = pd.read_excel(f, usecols=colunas_para_ler)
 
-        if not dfs:
-            return "Nenhum arquivo válido (CSV ou Excel) foi detectado.", None, None
+            df_temp.rename(columns=tradução_final, inplace=True)
 
-        # Consolida os DataFrames
-        full_df = pd.concat(dfs, ignore_index=True)
-        
-        # Gera a base comparativa Year-over-Year
-        df_comp, ano_at, ano_ant = get_yoy_data(full_df, apenas_completos=apenas_completos)
-        
-        return df_comp, ano_at, ano_ant
+            # 4. CRIAÇÃO DE ANO E MES (Essencial para o YoY)
+            if 'Data_Lancamento' in df_temp.columns:
+                df_temp['Data_Lancamento'] = pd.to_datetime(df_temp['Data_Lancamento'], dayfirst=True, errors='coerce')
+                df_temp = df_temp.dropna(subset=['Data_Lancamento'])
+                df_temp['Ano'] = df_temp['Data_Lancamento'].dt.year.astype(int)
+                df_temp['Mes'] = df_temp['Data_Lancamento'].dt.month.astype(int)
 
-    except Exception as e:
-        return f"Erro no processamento: {str(e)}", None, None
+            # --- 5. CRIAÇÃO DA DESC_CONTA (O que estava faltando!) ---
+            # Unimos a Denominação ao Código da Classe de Custo
+            # Usamos fillna para evitar que o "NaN" quebre a concatenação de strings
+            den = df_temp['DenClsCst'].fillna("Sem Descrição").astype(str) if 'DenClsCst' in df_temp.columns else "Sem Descrição"
+            cod = df_temp['Classe_Custo'].fillna("000000").astype(str) if 'Classe_Custo' in df_temp.columns else "000000"
+            df_temp['Desc_Conta'] = den + " - " + cod
+
+            # 6. OTIMIZAÇÃO DE MEMÓRIA
+            if 'Valor' in df_temp.columns:
+                if df_temp['Valor'].dtype == object:
+                    df_temp['Valor'] = df_temp['Valor'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+                df_temp['Valor'] = pd.to_numeric(df_temp['Valor'], errors='coerce').fillna(0).astype('float32')
+
+            cat_cols = ['Desc_Conta', 'Centro_Custo', 'VP', 'Localidade', 'P_L']
+            for col in cat_cols:
+                if col in df_temp.columns:
+                    df_temp[col] = df_temp[col].fillna("Não Informado").astype('category')
+
+            dfs.append(df_temp)
+            gc.collect()
+
+        except Exception as e:
+            return f"Erro no arquivo {f.name}: {str(e)}", None, None
+
+    if not dfs: return "Nenhum dado processado.", None, None
+    
+    full_df = pd.concat(dfs, ignore_index=True)
+    
+    from utils import get_yoy_data
+    return get_yoy_data(full_df, apenas_completos=apenas_completos)
+
+# Manter as funções voltar_nivel, apply_color_logic, etc., sem alterações.
 
 def voltar_nivel():
     """
@@ -105,18 +142,17 @@ def get_trend_text(df_item):
 
 def prepare_report_data(df, dims, ano_at, ano_ant):
     """Pre-calcula os dados garantindo que nenhum valor seja descartado (Lossless)."""
-    # Lista de todas as colunas possíveis da hierarquia
     todas_cols = ['Desc_Conta', 'P_L', 'VP', 'Localidade', 'Centro_Custo', 'Desc_Material']
     
-    # Criamos uma cópia para não afetar o DataFrame original do main
     df_clean = df.copy()
     
-    # CRÍTICO: Preenchemos valores nulos com uma string para o groupby não descartar linhas
+    # AJUSTE AQUI: Convertemos para string ANTES de preencher o vazio
     for c in todas_cols:
         if c in df_clean.columns:
-            df_clean[c] = df_clean[c].fillna("Não Informado").astype(str)
+            # Ao converter para str, os NaNs viram a string 'nan'
+            df_clean[c] = df_clean[c].astype(str).replace(['nan', 'None', '<NA>'], "Não Informado")
     
-    # Agrupamento global usando dropna=False por segurança extra
+    # O restante da função permanece igual
     agrupado = df_clean.groupby(dims + ['Mes', 'Ano'], dropna=False)['Valor'].sum().unstack(level='Ano').fillna(0)
     
     for a in [ano_at, ano_ant]:

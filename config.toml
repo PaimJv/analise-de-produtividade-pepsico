@@ -1,0 +1,10 @@
+[server]
+maxUploadSize = 150
+enableCORS = false
+
+[theme]
+primaryColor = "#004b93" # Azul PepsiCo
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f0f2f6"
+textColor = "#262730"
+font = "sans serif"

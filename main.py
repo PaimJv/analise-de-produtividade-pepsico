@@ -1,17 +1,14 @@
 import streamlit as st
 from logic import init_state, load_and_process_base, voltar_nivel, apply_color_logic
 from sidebar import render_initial_sidebar, render_advanced_filters
-from ia_engine import get_ai_insights
 from components import plot_drilldown_chart, render_dynamic_table
 import os, sys
+import gc
 
-# Adiciona a pasta temporária do executável ao PATH do Python para os imports funcionarem
+# --- 0. COMPATIBILIDADE EXECUTÁVEL ---
 if getattr(sys, 'frozen', False):
     bundle_dir = sys._MEIPASS
     sys.path.append(bundle_dir)
-
-# # No lugar de: api_key = st.secrets["GROQ_API_KEY"]
-# api_key = os.environ.get("GROQ_API_KEY")
 
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(
@@ -20,59 +17,81 @@ st.set_page_config(
     layout="wide"
 )
 
-# Inicializa o estado da sessão (drill_path)
+# Inicializa o estado da sessão (drill_path e dados)
 init_state()
 
-# Recupera a chave de API dos secrets
-# api_key = st.secrets.get("GROQ_API_KEY", None)
+# --- 2. GESTÃO DE ESTADO DE DADOS (OTIMIZAÇÃO CLOUD) ---
+# Inicializamos chaves para armazenar os dados processados na RAM da sessão
+if 'df_raw' not in st.session_state:
+    st.session_state.df_raw = None
+if 'ano_at' not in st.session_state:
+    st.session_state.ano_at = None
+if 'ano_ant' not in st.session_state:
+    st.session_state.ano_ant = None
+if 'last_files_hash' not in st.session_state:
+    st.session_state.last_files_hash = None
 
-# --- 2. INTERFACE INICIAL ---
+# --- 3. INTERFACE INICIAL ---
 st.title("📊 Auditoria de Produtividade YoY")
 st.caption("Análise de Variação de Custos com Auditoria Exaustiva por IA")
 st.markdown("---")
 
-# Renderiza a primeira parte da sidebar (Modo e Upload)
+# Renderiza a sidebar inicial
 apenas_completos, uploaded_files = render_initial_sidebar()
 
-if len(uploaded_files) >= 2:
-    # --- 3. PROCESSAMENTO DE DADOS ---
-    # df_raw já vem com a coluna 'Desc_Conta' formatada ("Descrição - Código")
-    df_raw, ano_at, ano_ant = load_and_process_base(uploaded_files, apenas_completos)
-    
-    if isinstance(df_raw, str):
-        st.error(f"Erro no processamento: {df_raw}")
-        st.stop()
+# Lógica para detectar se os arquivos mudaram (para resetar o cache da sessão)
+current_files_hash = str([f.name for f in uploaded_files]) + str(len(uploaded_files))
 
-    # --- 4. FILTROS AVANÇADOS (SIDEBAR ETAPA 2) ---
-    # Só renderiza após o df_raw estar pronto
+if uploaded_files and current_files_hash != st.session_state.last_files_hash:
+    st.session_state.df_raw = None # Força reprocessamento
+    st.session_state.last_files_hash = current_files_hash
+    st.session_state.drill_path = [] # Reseta navegação ao trocar arquivos
+
+if len(uploaded_files) >= 2:
+    
+    # --- 4. PROCESSAMENTO OTIMIZADO ---
+    # Só processa se não houver nada no estado da sessão
+    if st.session_state.df_raw is None:
+        with st.spinner("🚀 Otimizando base de dados (Limpando colunas excedentes)..."):
+            res, at, ant = load_and_process_base(uploaded_files, apenas_completos)
+            
+            if isinstance(res, str):
+                st.error(f"Erro no processamento: {res}")
+                st.stop()
+            else:
+                st.session_state.df_raw = res
+                st.session_state.ano_at = at
+                st.session_state.ano_ant = ant
+                gc.collect() # Limpeza de memória imediata
+
+    # Atalhos para facilitar o uso no restante do código
+    df_raw = st.session_state.df_raw
+    ano_at = st.session_state.ano_at
+    ano_ant = st.session_state.ano_ant
+
+    # --- 5. FILTROS AVANÇADOS ---
     selecao_meses, dimensoes_ia, foco_res, filtros_dinamicos = render_advanced_filters(df_raw)
 
-    # --- 5. LÓGICA DE FILTRAGEM E DRILL-DOWN ---
-    # A. Filtro de Meses
+    # --- 6. LÓGICA DE FILTRAGEM ---
     meses_filtro = selecao_meses if selecao_meses else sorted(df_raw['Mes'].unique())
     df_filtrado = df_raw[df_raw['Mes'].isin(meses_filtro)]
     
-    # B. Filtros Inteligentes (Cross-filtering da Sidebar)
-    # Aqui é onde a mágica acontece: se você filtrar uma Localidade, 
-    # o df_filtrado diminui e tudo que vem abaixo dele (Gráfico/Tabela) obedece.
     if filtros_dinamicos:
         for col, valores in filtros_dinamicos.items():
             if valores:
-                # Garantimos que a comparação seja feita como string para evitar erros de tipo
                 df_filtrado = df_filtrado[df_filtrado[col].astype(str).isin(valores)]
     
-    # C. Lógica de Drill-down (Navegação por clique)
-    # df_active é o que os gráficos e tabelas realmente usam
+    # --- 7. DRILL-DOWN ---
     df_active = df_filtrado.copy()
     for col, val in st.session_state.drill_path:
         if col in df_active.columns:
             df_active = df_active[df_active[col].astype(str) == str(val)]
 
-    # Breadcrumbs (Navegação Visual)
+    # Breadcrumbs
     path_txt = " > ".join([str(v) for c, v in st.session_state.drill_path]) if st.session_state.drill_path else "Corporativo"
     st.info(f"📍 **Localização:** `Início > {path_txt}`")
 
-    # --- 6. HIERARQUIA DE NAVEGAÇÃO ---
+    # --- 8. HIERARQUIA DE NAVEGAÇÃO ---
     hierarquia = ['Desc_Conta', 'P_L', 'VP', 'Localidade', 'Centro_Custo', 'Desc_Material']
     labels = {
         'Desc_Conta': 'Conta (Classe de Custo)', 
@@ -89,10 +108,7 @@ if len(uploaded_files) >= 2:
         atual_col = hierarquia[nivel]
         label_atual = labels.get(atual_col, atual_col)
 
-        # Gráfico de Impacto
-        # st.plotly_chart(plot_drilldown_chart(df_active, atual_col, ano_at, ano_ant), use_container_width=True)
-        
-        # Cabeçalho da Tabela e Botão Voltar
+        # Cabeçalho e Botão Voltar
         st.markdown("---")
         c1, c2 = st.columns([4, 1])
         with c1:
@@ -108,7 +124,7 @@ if len(uploaded_files) >= 2:
         df_pivot = render_dynamic_table(df_active, atual_col, ano_at, ano_ant)
         cols_meses = [c for c in df_pivot.columns if c != 'Total Geral']
 
-        # Exibição da Tabela com Seleção de Linha
+        # Exibição da Tabela
         event = st.dataframe(
             df_pivot.style.format(precision=2, decimal=',', thousands='.')
             .map(apply_color_logic, subset=cols_meses),
@@ -118,19 +134,25 @@ if len(uploaded_files) >= 2:
             key=f"tab_drill_{nivel}"
         )
 
+        # Lógica de Clique (Drill-down)
+        if event and "selection" in event and event["selection"]["rows"]:
+            idx = event["selection"]["rows"][0]
+            val_selecionado = df_pivot.index[idx]
+            if val_selecionado != "Total Geral":
+                st.session_state.drill_path.append((atual_col, val_selecionado))
+                st.rerun()
+
         st.markdown("---")
         st.subheader("📑 Auditoria Hierárquica de Variações")
 
         if not dimensoes_ia:
-            st.warning("Selecione as dimensões na barra lateral.")
+            st.warning("Selecione as dimensões na barra lateral para o relatório detalhado.")
         else:
             from logic import render_report_ui, prepare_report_data            
-            # 1. Pré-calculamos tudo (Rápido, fora da recursão)
-            with st.spinner("Processando indicadores..."):
+            with st.spinner("Gerando auditoria detalhada..."):
+                # Passamos o df_filtrado para garantir fidelidade ao contexto global
                 df_master = prepare_report_data(df_filtrado, dimensoes_ia, ano_at, ano_ant)
-            
-            # 2. Renderizamos a UI (Instantâneo, apenas consulta a df_master)
-            render_report_ui(df_master, dimensoes_ia,ano_at, ano_ant, foco_res)
+                render_report_ui(df_master, dimensoes_ia, ano_at, ano_ant, foco_res)
 
     else:
         # Nível Final (Material)
@@ -139,4 +161,4 @@ if len(uploaded_files) >= 2:
             st.session_state.drill_path = []
             st.rerun()
 else:
-    st.info("👋 Para começar, carregue os arquivos CSV de dois anos diferentes na barra lateral.")
+    st.info("👋 Para começar, carregue os arquivos de dois anos diferentes na barra lateral.")
