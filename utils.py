@@ -98,20 +98,11 @@ def get_yoy_data(df):
     # 2. ALINHAMENTO (O que faltou antes)
     # Filtramos o DataFrame para que AMBOS os anos (2025 e 2026) 
     # só mostrem meses até o 'mes_max' (ex: Jan a Mar)
-    # df_filtered = df[df['Mes'] <= mes_max].copy()
+    df_filtered = df[df['Mes'] <= mes_max].copy()
     
-    if not (1 <= mes_max <= 12):
-        return df[df['Ano'].isin([ano_at, ano_ant])], ano_at, ano_ant, None
-
     # 3. VERIFICAÇÃO DE INTEGRIDADE (Aviso de mês incompleto)
-    # ultimo_dia_real = calendar.monthrange(ano_at, mes_max)[1]
+    ultimo_dia_real = calendar.monthrange(ano_at, mes_max)[1]
     
-    try:
-        ultimo_dia_real = calendar.monthrange(int(ano_at), mes_max)[1]
-    except calendar.IllegalMonthError:
-        # Fallback caso algo muito estranho aconteça com o tipo do dado
-        ultimo_dia_real = 30
-
     aviso_incompleto = None
     if dia_max < ultimo_dia_real:
         meses_nomes = {1:'Janeiro', 2:'Fevereiro', 3:'Março', 4:'Abril', 5:'Maio', 6:'Junho',
