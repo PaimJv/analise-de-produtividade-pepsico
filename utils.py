@@ -68,17 +68,32 @@ def get_yoy_data(df):
     if df.empty or 'Ano' not in df.columns:
         return pd.DataFrame(), 0, 0, None
         
-    anos = sorted(df['Ano'].unique(), reverse=True)
+    # 1. FILTRAGEM E ORDENAÇÃO (Blindagem contra NaN)
+    # Extraímos apenas os valores que NÃO são nulos e convertemos para int
+    anos_disponiveis = df['Ano'].dropna().unique()
+    anos = sorted([int(a) for a in anos_disponiveis], reverse=True)
+    
     if len(anos) < 2:
         return pd.DataFrame(), 0, 0, None
         
-    ano_at, ano_ant = anos[0], anos[1]
+    ano_at = anos[0]
+    ano_ant = anos[1]
     
-    # 1. IDENTIFICAÇÃO DO PERÍODO DE CORTE
-    # Descobrimos qual o último mês com dados no ano ATUAL (ex: Março/2026)
-    data_max_atual = df[df['Ano'] == ano_at]['Data_Lancamento'].max()
-    mes_max = data_max_atual.month
-    dia_max = data_max_atual.day
+    # 2. IDENTIFICAÇÃO DO PERÍODO DE CORTE (Blindagem contra NaT)
+    # Buscamos a data máxima apenas onde o ano é o atual
+    serie_datas = df[df['Ano'] == ano_at]['Data_Lancamento']
+    
+    if serie_datas.empty or serie_datas.isna().all():
+        return df[df['Ano'].isin([ano_at, ano_ant])], ano_at, ano_ant, None
+        
+    data_max = serie_datas.max()
+    
+    # Verificamos se data_max é uma data válida antes de extrair mês/dia
+    if pd.isna(data_max):
+        return df[df['Ano'].isin([ano_at, ano_ant])], ano_at, ano_ant, None
+
+    mes_max = int(data_max.month)
+    dia_max = int(data_max.day)
     
     # 2. ALINHAMENTO (O que faltou antes)
     # Filtramos o DataFrame para que AMBOS os anos (2025 e 2026) 

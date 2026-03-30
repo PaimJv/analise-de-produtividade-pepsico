@@ -42,36 +42,30 @@ def load_and_process_base(files):
     import csv
     
     for f in files:
-        try:
-            # --- 1. IDENTIFICAÇÃO DE ENCODING E SEPARADOR (AMOSTRA) ---
+        try: # --- INÍCIO DO TRY POR ARQUIVO ---
+            # 1. LEITURA DE AMOSTRA (100 linhas para o "detetive" ter pistas)
             if f.name.endswith('.csv'):
-                encoding_tentativa = 'utf-8-sig'
-                # Testamos o encoding primeiro
+                encoding_tentativa = 'utf-8-sig' 
                 try:
-                    f.read(1024).decode(encoding_tentativa)
+                    df_header = pd.read_csv(f, sep=None, engine='python', encoding=encoding_tentativa, nrows=100)
                 except:
                     encoding_tentativa = 'latin-1'
+                    f.seek(0)
+                    df_header = pd.read_csv(f, sep=None, engine='python', encoding=encoding_tentativa, nrows=100)
+                
                 f.seek(0)
-
-                # DETECÇÃO DE SEPARADOR (Sniffer Robusto)
                 try:
                     sample = f.read(8192).decode(encoding_tentativa)
-                    f.seek(0)
-                    # O Sniffer tenta identificar se é , ou ; ou TAB
                     dialect = csv.Sniffer().sniff(sample, delimiters=',;\t|')
                     sep_detectado = dialect.delimiter
                 except:
-                    sep_detectado = ';' # Fallback padrão PepsiCo/SAP
-                
+                    sep_detectado = ';' # Fallback padrão SAP
                 f.seek(0)
-                # Lemos 100 linhas para o mapeamento ter dados para analisar
-                df_header = pd.read_csv(f, sep=sep_detectado, engine='c', encoding=encoding_tentativa, nrows=100)
             else:
-                # Excel pesado usa Calamine
                 df_header = pd.read_excel(f, engine='calamine', nrows=100)
                 sep_detectado = None
 
-            # --- 2. MAPEAMENTO FLEXÍVEL (NOME E CONTEÚDO) ---
+            # 2. MAPEAMENTO INTELIGENTE (NOME + CONTEÚDO/SINÔNIMOS)
             colunas_reais = df_header.columns.tolist()
             col_map_arquivo = {c.strip().lower(): c for c in colunas_reais}
             map_limpo = {k.strip().lower(): v for k, v in mapeamento.items()}
@@ -79,76 +73,100 @@ def load_and_process_base(files):
             tradução_final = {}
             colunas_sistema_obrigatorias = ['VP', 'Localidade', 'Centro_Custo', 'P_L', 'Valor', 'Data_Lancamento']
             
-            # TENTATIVA A: Mapeamento por Nome (Busca atual via utils)
+            # A) BUSCA POR NOME (Dicionário Utils)
             for k_limpo, v_sistema in map_limpo.items():
                 if k_limpo in col_map_arquivo:
                     nome_original = col_map_arquivo[k_limpo]
                     tradução_final[nome_original] = v_sistema
             
-            # TENTATIVA B: Mapeamento por Conteúdo (Somente se houver falha no Nome)
+            # B) BUSCA POR HEURÍSTICA (JSON de Referência)
             faltantes = [c for c in colunas_sistema_obrigatorias if c not in tradução_final.values()]
             
             if faltantes and os.path.exists('referencia_colunas.json'):
-                # Só abre o JSON se realmente precisar (se houver colunas faltantes)
                 with open('referencia_colunas.json', 'r', encoding='utf-8') as ref_file:
                     ref_data = json.load(ref_file)
                 
-                colunas_desconhecidas = [c for c in colunas_reais if c not in tradução_final.keys()]
+                colunas_ignotas = [c for c in colunas_reais if c not in tradução_final.keys()]
                 
-                for col_arq in colunas_desconhecidas:
-                    # Amostra de DNA dos dados da coluna
-                    amostra_real = set(df_header[col_arq].dropna().astype(str).unique().tolist())
+                for col_arq in colunas_ignotas[:]: # Cópia para permitir remoção
+                    nome_col_arq_limpo = col_arq.strip().lower()
+                    for nome_sistema_ref, exemplos_ref in ref_data.items():
+                        if nome_sistema_ref in faltantes:
+                            sinonimos = [str(e).strip().lower() for e in exemplos_ref]
+                            if nome_col_arq_limpo in sinonimos:
+                                tradução_final[col_arq] = nome_sistema_ref
+                                faltantes.remove(nome_sistema_ref)
+                                colunas_ignotas.remove(col_arq)
+                                break
+                
+                # --- ONDA 2: BUSCA POR CONTEÚDO (DNA) ---
+                # Só entra aqui se o nome da coluna não deu match na Onda 1
+                for col_arq in colunas_ignotas:
+                    if not faltantes: break
+                    
+                    amostra_real = [str(x) for x in df_header[col_arq].dropna().unique().tolist()]
                     
                     for nome_sistema_ref, exemplos_ref in ref_data.items():
                         if nome_sistema_ref in faltantes:
-                            # Se o conteúdo bater com a referência, fazemos o mapeamento
-                            if amostra_real & set(exemplos_ref):
+                            exemplos_baixos = [str(e).lower() for e in exemplos_ref]
+                            
+                            # if nome_sistema_ref == "Valor":
+                            #     continue
+                            
+                            match_encontrado = False
+                            for dado_arquivo in amostra_real:
+                                for ex_json in exemplos_baixos:
+                                    if ex_json in dado_arquivo: 
+                                        match_encontrado = True
+                                        break
+                                if match_encontrado: break
+                            
+                            if match_encontrado:
                                 tradução_final[col_arq] = nome_sistema_ref
                                 faltantes.remove(nome_sistema_ref)
                                 break
-            
-            # Define as colunas finais para a leitura definitiva
-            colunas_para_ler = list(tradução_final.keys())
+                
+            # 3. TRAVA DE SEGURANÇA (Evita o KeyError: 'Mes')
+            if 'Data_Lancamento' not in tradução_final.values():
+                return f"Erro: A coluna de DATA não foi encontrada em {f.name}.", None, None, None
 
-            # --- 3. LEITURA COMPLETA OTIMIZADA ---
+            # 4. LEITURA COMPLETA OTIMIZADA
             f.seek(0)
+            colunas_para_ler = list(tradução_final.keys())
             if f.name.endswith('.csv'):
                 df_temp = pd.read_csv(f, usecols=colunas_para_ler, sep=sep_detectado, engine='c', encoding=encoding_tentativa, low_memory=False)
             else:
                 df_temp = pd.read_excel(f, usecols=colunas_para_ler, engine='calamine')
 
-            # ... (segue o restante do seu código de renomeação e criação de Mes)
             df_temp.rename(columns=tradução_final, inplace=True)
 
-            # --- 4. PROCESSAMENTO DE DADOS (CRIAÇÃO DO 'MES') ---
+            # 5. FEATURE ENGINEERING (Ano, Mes, Desc_Conta)
             if 'Data_Lancamento' in df_temp.columns:
                 df_temp['Data_Lancamento'] = pd.to_datetime(df_temp['Data_Lancamento'], dayfirst=True, errors='coerce')
                 df_temp = df_temp.dropna(subset=['Data_Lancamento'])
                 df_temp['Ano'] = df_temp['Data_Lancamento'].dt.year.astype(int)
                 df_temp['Mes'] = df_temp['Data_Lancamento'].dt.month.astype(int)
 
-            # Criação da Desc_Conta
             den = df_temp['DenClsCst'].fillna("Sem Descrição").astype(str) if 'DenClsCst' in df_temp.columns else "Sem Descrição"
             cod = df_temp['Classe_Custo'].fillna("000000").astype(str) if 'Classe_Custo' in df_temp.columns else "000000"
             df_temp['Desc_Conta'] = den + " - " + cod
 
-            # Valor Numérico
+            # 6. OTIMIZAÇÃO DE MEMÓRIA E TIPAGEM
             if 'Valor' in df_temp.columns:
                 if df_temp['Valor'].dtype == object:
                     df_temp['Valor'] = df_temp['Valor'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
                 df_temp['Valor'] = pd.to_numeric(df_temp['Valor'], errors='coerce').fillna(0).astype('float32')
 
-            # Categorias (Tratamento seguro)
             for col in ['Desc_Conta', 'Centro_Custo', 'VP', 'Localidade', 'P_L']:
                 if col in df_temp.columns:
-                    df_temp[col] = df_temp[col].fillna("Não Informado").astype(str).astype('category')
+                    df_temp[col] = df_temp[col].fillna("Não Informado").astype('category')
 
             dfs.append(df_temp)
             gc.collect()
 
-        except Exception as e:
+        except Exception as e: # --- FECHAMENTO DO TRY POR ARQUIVO ---
             return f"Erro no arquivo {f.name}: {str(e)}", None, None, None
-
+    
     if not dfs: return "Nenhum dado processado.", None, None, None
     full_df = pd.concat(dfs, ignore_index=True)
     return get_yoy_data(full_df)

@@ -6,6 +6,25 @@
         "Sell Sell",
         "Sell Ops"
     ],
+    "Valor": [
+        "Valor/moeda objeto",
+        "1.000,00",
+        "0,00",
+        "1,50",
+        "1,5",
+        ",0",
+        "1,"
+    ],
+    "Desc_Material": [
+        "Texto breve material"
+    ],
+    "Data_Lancamento": [
+        "Dt.lçto",
+        "/2025",
+        "/2026",
+        "01/01/2026",
+        "01/01/2025"
+    ],
     "VP": [
         "Total Operacoes",
         "Total RH",
