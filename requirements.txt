@@ -1,6 +1,5 @@
 streamlit
-python-calamine
-pandas>=2.2.0
+pandas
 plotly
 openpyxl
 groq

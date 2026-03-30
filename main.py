@@ -103,7 +103,7 @@ if len(uploaded_files) >= 2:
             st.warning(f"⚠️ **Atenção:** O mês de **{a['mes_nome']}** está incompleto no relatório (registros apenas até o dia **{a['dia']}**).")
 
     path_txt = " > ".join([str(v) for c, v in st.session_state.drill_path]) if st.session_state.drill_path else "Corporativo"
-    st.info(f"📍 **Localização:** `Início > {path_txt}`")
+    # st.info(f"📍 **Localização:** `Início > {path_txt}`")
 
     # --- 8. HIERARQUIA DE NAVEGAÇÃO ---
     hierarquia = ['Desc_Conta', 'P_L', 'VP', 'Localidade', 'Centro_Custo', 'Desc_Material']

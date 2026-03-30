@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import gc # Garbage Collector
-import python_calamine
 from utils import mapeamento, get_yoy_data
 
 def init_state():
@@ -29,7 +28,7 @@ def load_and_process_base(files):
                     df_header = pd.read_csv(f, sep=None, engine='python', encoding=encoding_tentativa, nrows=2)
                 f.seek(0)
             else:
-                df_header = pd.read_excel(f, engine='calamine', nrows=2)
+                df_header = pd.read_excel(f, nrows=2)
 
             # 2. MAPEAMENTO FLEXÍVEL
             colunas_reais = df_header.columns.tolist()
@@ -49,19 +48,9 @@ def load_and_process_base(files):
             if f.name.endswith('.csv'):
                 df_temp = pd.read_csv(f, usecols=colunas_para_ler, sep=None, engine='python', encoding=encoding_tentativa)
             else:
-                df_temp = pd.read_excel(f, usecols=colunas_para_ler, engine='calamine')
+                df_temp = pd.read_excel(f, usecols=colunas_para_ler)
 
             df_temp.rename(columns=tradução_final, inplace=True)
-
-            # 5. OTIMIZAÇÃO DE MEMÓRIA (Downcasting)
-            if 'Valor' in df_temp.columns:
-                # Converte para numérico e reduz para 32 bits
-                df_temp['Valor'] = pd.to_numeric(df_temp['Valor'], errors='coerce').fillna(0).astype('float32')
-
-            # Transforma colunas de texto repetitivo em Categorias
-            # for col in ['P_L', 'VP', 'Localidade', 'Centro_Custo']:
-            #     if col in df_temp.columns:
-            #         df_temp[col] = df_temp[col].astype('category')
 
             # 4. CRIAÇÃO DE ANO E MES (Essencial para o YoY)
             if 'Data_Lancamento' in df_temp.columns:
@@ -92,9 +81,9 @@ def load_and_process_base(files):
             gc.collect()
 
         except Exception as e:
-            return f"Erro no arquivo {f.name}: {str(e)}", None, None, None
+            return f"Erro no arquivo {f.name}: {str(e)}", None, None
 
-    if not dfs: return "Nenhum dado processado.", None, None, None
+    if not dfs: return "Nenhum dado processado.", None, None
     
     full_df = pd.concat(dfs, ignore_index=True)
     
