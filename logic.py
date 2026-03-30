@@ -14,21 +14,25 @@ def init_state():
 def load_and_process_base(files):
     dfs = []
     from utils import mapeamento
+    import csv
     
     for f in files:
         try:
             # 1. IDENTIFICAÇÃO DE ENCODING (utf-8-sig mata o erro do ï»¿)
-            encoding_tentativa = 'utf-8-sig' 
             if f.name.endswith('.csv'):
+                encoding_tentativa = 'utf-8-sig' 
                 try:
                     df_header = pd.read_csv(f, sep=None, engine='python', encoding=encoding_tentativa, nrows=2)
                 except:
                     encoding_tentativa = 'latin-1'
                     f.seek(0)
                     df_header = pd.read_csv(f, sep=None, engine='python', encoding=encoding_tentativa, nrows=2)
-                f.seek(0)
+
             else:
-                df_header = pd.read_excel(f, nrows=2)
+                # LEITURA OTIMIZADA EXCEL (Calamine)
+                df_header = pd.read_excel(f, engine='calamine', nrows=2)
+                # f.seek(0)
+                # df_temp = pd.read_excel(f, engine='calamine')
 
             # 2. MAPEAMENTO FLEXÍVEL
             colunas_reais = df_header.columns.tolist()
@@ -43,13 +47,32 @@ def load_and_process_base(files):
                     nome_original = col_map_arquivo[k_limpo]
                     tradução_final[nome_original] = v_sistema
                     colunas_para_ler.append(nome_original)
-
-            # 3. LEITURA COMPLETA
+            
+            # 3. LEITURA COMPLETA OTIMIZADA
             if f.name.endswith('.csv'):
-                df_temp = pd.read_csv(f, usecols=colunas_para_ler, sep=None, engine='python', encoding=encoding_tentativa)
+                f.seek(0)
+                # Melhoria no Sniffer: tentamos detectar, se falhar, usamos o padrão ';' (comum no SAP)
+                try:
+                    sample = f.read(4096).decode(encoding_tentativa)
+                    dialect = csv.Sniffer().sniff(sample, delimiters=',;\t|')
+                    sep_detectado = dialect.delimiter
+                except:
+                    sep_detectado = ';' 
+                
+                f.seek(0)
+                df_temp = pd.read_csv(
+                    f, 
+                    usecols=colunas_para_ler, 
+                    sep=sep_detectado, 
+                    engine='c', 
+                    encoding=encoding_tentativa, 
+                    low_memory=False
+                )
             else:
-                df_temp = pd.read_excel(f, usecols=colunas_para_ler)
+                f.seek(0)
+                df_temp = pd.read_excel(f, usecols=colunas_para_ler, engine='calamine')
 
+            # Renomeia as colunas para o padrão do sistema
             df_temp.rename(columns=tradução_final, inplace=True)
 
             # 4. CRIAÇÃO DE ANO E MES (Essencial para o YoY)
@@ -81,9 +104,9 @@ def load_and_process_base(files):
             gc.collect()
 
         except Exception as e:
-            return f"Erro no arquivo {f.name}: {str(e)}", None, None
+            return f"Erro no arquivo {f.name}: {str(e)}", None, None, None
 
-    if not dfs: return "Nenhum dado processado.", None, None
+    if not dfs: return "Nenhum dado processado.", None, None, None
     
     full_df = pd.concat(dfs, ignore_index=True)
     
@@ -217,12 +240,12 @@ def render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade=0,
         df_item = df_nivel.xs(item, level=col, drop_level=False)
         
         # 1. Calculamos o Delta Mensal
-        # delta_mensal = df_item.groupby(level='Mes')['Delta'].sum()
         delta_mensal = df_item.groupby(level='Mes', observed=True)['Delta'].sum()
         
         if selecao_meses:
-            delta_mensal = delta_mensal[delta_mensal.index.isin(selecao_meses)]
-        
+            selecao_ints = [int(m) for m in selecao_meses]
+            delta_mensal = delta_mensal[delta_mensal.index.isin(selecao_ints)]
+                    
         # 3. Total do período baseado APENAS nos meses filtrados
         var_total = delta_mensal.sum()
         
@@ -256,7 +279,4 @@ def render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade=0,
                 novo_contexto[col] = item
                 
                 # RECURSÃO: Passamos o selecao_meses adiante
-                render_report_ui(
-                    df_master, dims, ano_at, ano_ant, foco_res, 
-                    profundidade + 1, novo_contexto, selecao_meses=selecao_meses
-                )
+                render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade + 1, novo_contexto, selecao_meses=selecao_meses)
