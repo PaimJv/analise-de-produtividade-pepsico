@@ -1,4 +1,5 @@
 import streamlit as st
+from logic import reset_navigation
 
 def render_initial_sidebar():
     """
@@ -16,7 +17,7 @@ def render_initial_sidebar():
     
     return uploaded_files
 
-def render_advanced_filters(df_raw):
+def render_advanced_filters(df_raw, dimensoes_validas, ano_at, ano_ant):
     st.sidebar.markdown("---")
     
     # 1. Filtro de Meses
@@ -29,27 +30,31 @@ def render_advanced_filters(df_raw):
         options=meses_lista, 
         default=meses_lista,
         format_func=lambda x: meses_br.get(x, x),
-        key="ms_meses"
+        key="ms_meses",
+        on_change=reset_navigation
     )
 
     # 2. Dimensões para a IA
-    opcoes_hierarquia = ['Desc_Conta', 'P_L', 'VP', 'Localidade', 'Centro_Custo', 'Desc_Material']
+    # opcoes_hierarquia = ['Desc_Conta', 'P_L', 'VP', 'Localidade', 'Centro_Custo', 'Desc_Material']
+    opcoes_hierarquia = dimensoes_validas
     dimensoes_ia = st.sidebar.multiselect(
         "3. Dimensões para a IA:",
         options=opcoes_hierarquia,
-        default=['Desc_Conta', 'Localidade'],
-        key="ms_dimensoes"
+        default=[
+            # 'Desc_Conta', 'Localidade'
+            ],
+        key="ms_dimensoes",
+        on_change=reset_navigation
     )
 
     # 3. Foco da Análise
     foco_resultado = st.sidebar.radio(
         "4. Foco da Análise:",
         ["Apenas Savings (Eficiência)", "Apenas Desvios (Gastos)", "Análise 360° (Ambos)"],
-        key="radio_foco_ia"
+        key="radio_foco_ia",
+        on_change=reset_navigation
     )
 
-    # --- NOVO: FILTROS INTERDEPENDENTES (CROSS-FILTERING) ---
-    # --- SUBSTITUA TODO O BLOCO DO LOOP 'for dim in dimensoes_ia:' POR ESTE ---
     filtros_selecionados = {}
     
     if dimensoes_ia:
@@ -81,17 +86,11 @@ def render_advanced_filters(df_raw):
                 f"Filtrar {dim}:",
                 options=opcoes_finais,
                 key=f"dyn_filter_{dim}",
-                help=f"Lista em ordem alfabética. Opções limitadas pelas outras seleções."
+                help=f"Lista em ordem alfabética. Opções limitadas pelas outras seleções.",
+                on_change=reset_navigation
             )
             filtros_selecionados[dim] = escolha
 
     st.sidebar.markdown("---")
-    # if st.sidebar.button("🔄 Resetar Navegação", use_container_width=True, key="btn_reset"):
-    #     # Limpa os estados dos filtros dinâmicos também
-    #     for dim in opcoes_hierarquia:
-    #         if f"dyn_filter_{dim}" in st.session_state:
-    #             st.session_state[f"dyn_filter_{dim}"] = []
-    #     st.session_state.drill_path = []
-    #     st.rerun()
 
     return selecao_meses, dimensoes_ia, foco_resultado, filtros_selecionados

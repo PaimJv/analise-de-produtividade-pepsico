@@ -4,6 +4,7 @@ from sidebar import render_initial_sidebar, render_advanced_filters
 from components import render_dynamic_table
 import sys
 import gc
+import pandas as pd
 
 # --- 0. COMPATIBILIDADE EXECUTÁVEL ---
 if getattr(sys, 'frozen', False):
@@ -30,6 +31,8 @@ if 'ano_ant' not in st.session_state:
     st.session_state.ano_ant = None
 if 'last_files_hash' not in st.session_state:
     st.session_state.last_files_hash = None
+if 'dims_com_paridade' not in st.session_state:
+    st.session_state.dims_com_paridade = []
 
 # --- 3. INTERFACE INICIAL ---
 st.title("📊 Auditoria de Produtividade YoY")
@@ -60,28 +63,40 @@ if uploaded_files and current_files_hash != st.session_state.last_files_hash:
 if len(uploaded_files) >= 2:
     
     # --- 4. PROCESSAMENTO OTIMIZADO ---
-    # Só processa se não houver nada no estado da sessão
     if st.session_state.df_raw is None:
-        with st.spinner("🚀 Otimizando base de dados (Limpando colunas excedentes)..."):
+        with st.spinner("🚀 Otimizando base de dados..."):
             res, at, ant, aviso = load_and_process_base(uploaded_files)
             
-            if isinstance(res, str):
-                st.error(f"Erro no processamento: {res}")
-                st.stop()
-            else:
+            if isinstance(res, pd.DataFrame):
+                # 1. Detectamos as dimensões válidas
+                from logic import obter_dimensoes_validas
+                dims_validas = obter_dimensoes_validas(res, at, ant)
+                
+                # 2. Salvamos TUDO na sessão
                 st.session_state.df_raw = res
                 st.session_state.ano_at = at
                 st.session_state.ano_ant = ant
-                st.session_state.aviso_incompleto = aviso # Salva no estado
-                gc.collect() # Limpeza de memória imediata
+                st.session_state.dims_com_paridade = dims_validas # SALVANDO AQUI
+                st.session_state.aviso_incompleto = aviso
+                gc.collect()
+            else:
+                st.error(f"Erro no processamento: {res}")
+                st.stop()
 
-    # Atalhos para facilitar o uso no restante do código
+    # Atalhos (Garante que as variáveis existam para a sidebar)
     df_raw = st.session_state.df_raw
     ano_at = st.session_state.ano_at
     ano_ant = st.session_state.ano_ant
+    dims_com_paridade = st.session_state.dims_com_paridade
 
     # --- 5. FILTROS AVANÇADOS ---
-    selecao_meses, dimensoes_ia, foco_res, filtros_dinamicos = render_advanced_filters(df_raw)
+    # Agora passando os 4 argumentos necessários
+    selecao_meses, dimensoes_ia, foco_res, filtros_dinamicos = render_advanced_filters(
+        df_raw, 
+        dims_com_paridade, 
+        ano_at, 
+        ano_ant
+    )
 
     # --- 6. LÓGICA DE FILTRAGEM ---
     meses_filtro = selecao_meses if selecao_meses else sorted(df_raw['Mes'].unique())
@@ -172,8 +187,8 @@ if len(uploaded_files) >= 2:
             
             with placeholder.container(): # <--- ADICIONE ESTA LINHA
                 with st.spinner("Gerando auditoria detalhada..."):
-                    df_master = prepare_report_data(df_filtrado, dimensoes_ia, ano_at, ano_ant)
-                    render_report_ui(df_master, dimensoes_ia, ano_at, ano_ant, foco_res, selecao_meses=meses_filtro)
+                    df_master, dims_analise = prepare_report_data(df_filtrado, dimensoes_ia, ano_at, ano_ant)
+                    render_report_ui(df_master, dims_analise, ano_at, ano_ant, foco_res, selecao_meses=meses_filtro)
         
     else:
         # Nível Final (Material)

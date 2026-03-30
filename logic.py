@@ -20,6 +20,21 @@ def init_state():
     if 'aviso_incompleto' not in st.session_state:
         st.session_state.aviso_incompleto = None
 
+def obter_dimensoes_validas(df, ano_at, ano_ant):
+    """Retorna apenas as colunas que possuem dados em ambos os anos."""
+    possiveis = ['Desc_Conta', 'P_L', 'VP', 'Localidade', 'Centro_Custo', 'Desc_Material']
+    validas = []
+    
+    for col in possiveis:
+        if col in df.columns:
+            # Teste de existência em ambos os anos
+            tem_no_at = df[df['Ano'] == ano_at][col].notna().any()
+            tem_no_ant = df[df['Ano'] == ano_ant][col].notna().any()
+            
+            if tem_no_at and tem_no_ant:
+                validas.append(col)
+    return validas
+
 @st.cache_data(show_spinner="Otimizando base de dados...")
 def load_and_process_base(files):
     dfs = []
@@ -190,22 +205,40 @@ def get_trend_text(df_item):
 def prepare_report_data(df, dims, ano_at, ano_ant):
     """Pre-calcula os dados garantindo que nenhum valor seja descartado (Lossless)."""
     df_clean = df.copy()
+    dims_com_paridade = []
+    dims_existentes = [d for d in dims if d in df_clean.columns]
+    
+    for d in dims:
+        if d in df_clean.columns:
+            # Verifica se o ano ATUAL tem algum dado que não seja nulo para esta coluna
+            existe_no_atual = df_clean[df_clean['Ano'] == ano_at][d].notna().any()
+            # Verifica se o ano ANTERIOR tem algum dado que não seja nulo para esta coluna
+            existe_no_anterior = df_clean[df_clean['Ano'] == ano_ant][d].notna().any()
+            
+            # A coluna só entra no relatório se "viver" nos dois anos
+            if existe_no_atual and existe_no_anterior:
+                dims_com_paridade.append(d)
     
     # FORÇAMOS o Mês a ser um inteiro puro para matar a memória do tipo 'category'
     if 'Mes' in df_clean.columns:
         df_clean['Mes'] = df_clean['Mes'].astype(int)
     
-    todas_cols = ['Desc_Conta', 'P_L', 'VP', 'Localidade', 'Centro_Custo', 'Desc_Material']
+    # todas_cols = ['Desc_Conta', 'P_L', 'VP', 'Localidade', 'Centro_Custo', 'Desc_Material']
     
     # AJUSTE AQUI: Convertemos para string ANTES de preencher o vazio
-    for c in todas_cols:
+    # for c in todas_cols:
+    for c in dims_com_paridade + ['Desc_Material']:
         if c in df_clean.columns:
             # Ao converter para str, os NaNs viram a string 'nan'
             df_clean[c] = df_clean[c].astype(str).replace(['nan', 'None', '<NA>'], "Não Informado")
     
+    # for c in dims_existentes + ['Desc_Material']:
+    #     if c in df_clean.columns:
+    #         df_clean[c] = df_clean[c].astype(str).replace(['nan', 'None', '<NA>'], "Não Informado")
+    
     # O restante da função permanece igual
     agrupado = (
-        df_clean.groupby(dims + ['Mes', 'Ano'], observed=True)['Valor']
+        df_clean.groupby(dims_com_paridade + ['Mes', 'Ano'], observed=True)['Valor']
         .sum()
         .unstack(level='Ano')
         .fillna(0)
@@ -215,10 +248,14 @@ def prepare_report_data(df, dims, ano_at, ano_ant):
         if a not in agrupado.columns: agrupado[a] = 0
     
     agrupado['Delta'] = agrupado[ano_at] - agrupado[ano_ant]
-    return agrupado
+    return agrupado, dims_com_paridade
 
 def render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade=0, filtro_contexto=None, selecao_meses=None):
     """Relatório onde o Material é puramente informativo e os totais são preservados."""
+    if not dims:
+        st.warning("Nenhuma dimensão de análise (P&L, VP, etc.) foi encontrada nos arquivos.")
+        return
+    
     if profundidade >= len(dims):
         return
 
