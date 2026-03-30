@@ -1,0 +1,81 @@
+{
+    "P_L": [
+        "Make",
+        "G&A",
+        "Move",
+        "Sell Sell",
+        "Sell Ops"
+    ],
+    "VP": [
+        "Total Operacoes",
+        "Total RH",
+        "Amacoco",
+        "Total Marketing",
+        "Total Supply Chain",
+        "Total Vendas",
+        "Total S&T"
+    ],
+    "Localidade": [
+        "FABRICA PETROLINA",
+        "ESCRITORIO CENTRAL",
+        "TRANSPORTADORA - ITU",
+        "FABRICA ITU",
+        "FABRICA SOROCABA",
+        "CDV MEGA RIO",
+        "CDV MEGA CURITIBA"
+    ],
+    "Centro_Custo": [
+        "BR10001",
+        "BR10004",
+        "BR10015",
+        "BR10012",
+        "BR10014",
+        "BR10013",
+        "BR10100",
+        "BR10120",
+        "BR10135",
+        "BR10146",
+        "BR10155",
+        "BR10157",
+        "BR10240",
+        "BR10200",
+        "BR10230",
+        "BR10308",
+        "BR10309",
+        "BR10315",
+        "BR10302",
+        "BR10319",
+        "BR11502",
+        "BR11508",
+        "BR11510",
+        "BR11507",
+        "BR10480",
+        "BR11501",
+        "BR11503",
+        "BR11530",
+        "BR11554",
+        "BR11540"
+    ],
+    "DenClsCst": [
+        "Despesas de Fretado",
+        "Higienização Uniform",
+        "Despesa com limpeza",
+        "MO Temp Sazonal",
+        "MO Temp Op-Fab Galp",
+        "Serviços Terceiros",
+        "Aluguel Equip Cópias",
+        "MOT Adm FábGalpEsc",
+        "Serv de postagem"
+    ],
+    "Classe_Custo": [
+        "6200103",
+        "6100020",
+        "6600026",
+        "6000014",
+        "6600005",
+        "6600022",
+        "6600078",
+        "6600021",
+        "6600066"
+    ]
+}

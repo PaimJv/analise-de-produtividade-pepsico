@@ -1,7 +1,17 @@
 import streamlit as st
 import pandas as pd
 import gc # Garbage Collector
+import json, os
 from utils import mapeamento, get_yoy_data
+
+def carregar_referencia():
+    """Carrega o JSON de assinaturas se ele existir."""
+    if os.path.exists('referencia_colunas.json'):
+        with open('referencia_colunas.json', 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {}
+
+REFERENCIA_CONTEUDO = carregar_referencia()
 
 def init_state():
     """Inicializa as variáveis de estado da sessão de forma única."""
@@ -18,87 +28,105 @@ def load_and_process_base(files):
     
     for f in files:
         try:
-            # 1. IDENTIFICAÇÃO DE ENCODING (utf-8-sig mata o erro do ï»¿)
+            # --- 1. IDENTIFICAÇÃO DE ENCODING E SEPARADOR (AMOSTRA) ---
             if f.name.endswith('.csv'):
-                encoding_tentativa = 'utf-8-sig' 
+                encoding_tentativa = 'utf-8-sig'
+                # Testamos o encoding primeiro
                 try:
-                    df_header = pd.read_csv(f, sep=None, engine='python', encoding=encoding_tentativa, nrows=2)
+                    f.read(1024).decode(encoding_tentativa)
                 except:
                     encoding_tentativa = 'latin-1'
+                f.seek(0)
+
+                # DETECÇÃO DE SEPARADOR (Sniffer Robusto)
+                try:
+                    sample = f.read(8192).decode(encoding_tentativa)
                     f.seek(0)
-                    df_header = pd.read_csv(f, sep=None, engine='python', encoding=encoding_tentativa, nrows=2)
-
+                    # O Sniffer tenta identificar se é , ou ; ou TAB
+                    dialect = csv.Sniffer().sniff(sample, delimiters=',;\t|')
+                    sep_detectado = dialect.delimiter
+                except:
+                    sep_detectado = ';' # Fallback padrão PepsiCo/SAP
+                
+                f.seek(0)
+                # Lemos 100 linhas para o mapeamento ter dados para analisar
+                df_header = pd.read_csv(f, sep=sep_detectado, engine='c', encoding=encoding_tentativa, nrows=100)
             else:
-                # LEITURA OTIMIZADA EXCEL (Calamine)
-                df_header = pd.read_excel(f, engine='calamine', nrows=2)
-                # f.seek(0)
-                # df_temp = pd.read_excel(f, engine='calamine')
+                # Excel pesado usa Calamine
+                df_header = pd.read_excel(f, engine='calamine', nrows=100)
+                sep_detectado = None
 
-            # 2. MAPEAMENTO FLEXÍVEL
+            # --- 2. MAPEAMENTO FLEXÍVEL (NOME E CONTEÚDO) ---
             colunas_reais = df_header.columns.tolist()
             col_map_arquivo = {c.strip().lower(): c for c in colunas_reais}
             map_limpo = {k.strip().lower(): v for k, v in mapeamento.items()}
             
             tradução_final = {}
-            colunas_para_ler = []
+            colunas_sistema_obrigatorias = ['VP', 'Localidade', 'Centro_Custo', 'P_L', 'Valor', 'Data_Lancamento']
             
+            # TENTATIVA A: Mapeamento por Nome (Busca atual via utils)
             for k_limpo, v_sistema in map_limpo.items():
                 if k_limpo in col_map_arquivo:
                     nome_original = col_map_arquivo[k_limpo]
                     tradução_final[nome_original] = v_sistema
-                    colunas_para_ler.append(nome_original)
             
-            # 3. LEITURA COMPLETA OTIMIZADA
-            if f.name.endswith('.csv'):
-                f.seek(0)
-                # Melhoria no Sniffer: tentamos detectar, se falhar, usamos o padrão ';' (comum no SAP)
-                try:
-                    sample = f.read(4096).decode(encoding_tentativa)
-                    dialect = csv.Sniffer().sniff(sample, delimiters=',;\t|')
-                    sep_detectado = dialect.delimiter
-                except:
-                    sep_detectado = ';' 
+            # TENTATIVA B: Mapeamento por Conteúdo (Somente se houver falha no Nome)
+            faltantes = [c for c in colunas_sistema_obrigatorias if c not in tradução_final.values()]
+            
+            if faltantes and os.path.exists('referencia_colunas.json'):
+                # Só abre o JSON se realmente precisar (se houver colunas faltantes)
+                with open('referencia_colunas.json', 'r', encoding='utf-8') as ref_file:
+                    ref_data = json.load(ref_file)
                 
-                f.seek(0)
-                df_temp = pd.read_csv(
-                    f, 
-                    usecols=colunas_para_ler, 
-                    sep=sep_detectado, 
-                    engine='c', 
-                    encoding=encoding_tentativa, 
-                    low_memory=False
-                )
+                colunas_desconhecidas = [c for c in colunas_reais if c not in tradução_final.keys()]
+                
+                for col_arq in colunas_desconhecidas:
+                    # Amostra de DNA dos dados da coluna
+                    amostra_real = set(df_header[col_arq].dropna().astype(str).unique().tolist())
+                    
+                    for nome_sistema_ref, exemplos_ref in ref_data.items():
+                        if nome_sistema_ref in faltantes:
+                            # Se o conteúdo bater com a referência, fazemos o mapeamento
+                            if amostra_real & set(exemplos_ref):
+                                tradução_final[col_arq] = nome_sistema_ref
+                                faltantes.remove(nome_sistema_ref)
+                                break
+            
+            # Define as colunas finais para a leitura definitiva
+            colunas_para_ler = list(tradução_final.keys())
+
+            # --- 3. LEITURA COMPLETA OTIMIZADA ---
+            f.seek(0)
+            if f.name.endswith('.csv'):
+                df_temp = pd.read_csv(f, usecols=colunas_para_ler, sep=sep_detectado, engine='c', encoding=encoding_tentativa, low_memory=False)
             else:
-                f.seek(0)
                 df_temp = pd.read_excel(f, usecols=colunas_para_ler, engine='calamine')
 
-            # Renomeia as colunas para o padrão do sistema
+            # ... (segue o restante do seu código de renomeação e criação de Mes)
             df_temp.rename(columns=tradução_final, inplace=True)
 
-            # 4. CRIAÇÃO DE ANO E MES (Essencial para o YoY)
+            # --- 4. PROCESSAMENTO DE DADOS (CRIAÇÃO DO 'MES') ---
             if 'Data_Lancamento' in df_temp.columns:
                 df_temp['Data_Lancamento'] = pd.to_datetime(df_temp['Data_Lancamento'], dayfirst=True, errors='coerce')
                 df_temp = df_temp.dropna(subset=['Data_Lancamento'])
                 df_temp['Ano'] = df_temp['Data_Lancamento'].dt.year.astype(int)
                 df_temp['Mes'] = df_temp['Data_Lancamento'].dt.month.astype(int)
 
-            # --- 5. CRIAÇÃO DA DESC_CONTA (O que estava faltando!) ---
-            # Unimos a Denominação ao Código da Classe de Custo
-            # Usamos fillna para evitar que o "NaN" quebre a concatenação de strings
+            # Criação da Desc_Conta
             den = df_temp['DenClsCst'].fillna("Sem Descrição").astype(str) if 'DenClsCst' in df_temp.columns else "Sem Descrição"
             cod = df_temp['Classe_Custo'].fillna("000000").astype(str) if 'Classe_Custo' in df_temp.columns else "000000"
             df_temp['Desc_Conta'] = den + " - " + cod
 
-            # 6. OTIMIZAÇÃO DE MEMÓRIA
+            # Valor Numérico
             if 'Valor' in df_temp.columns:
                 if df_temp['Valor'].dtype == object:
                     df_temp['Valor'] = df_temp['Valor'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
                 df_temp['Valor'] = pd.to_numeric(df_temp['Valor'], errors='coerce').fillna(0).astype('float32')
 
-            cat_cols = ['Desc_Conta', 'Centro_Custo', 'VP', 'Localidade', 'P_L']
-            for col in cat_cols:
+            # Categorias (Tratamento seguro)
+            for col in ['Desc_Conta', 'Centro_Custo', 'VP', 'Localidade', 'P_L']:
                 if col in df_temp.columns:
-                    df_temp[col] = df_temp[col].fillna("Não Informado").astype('category')
+                    df_temp[col] = df_temp[col].fillna("Não Informado").astype(str).astype('category')
 
             dfs.append(df_temp)
             gc.collect()
@@ -107,10 +135,7 @@ def load_and_process_base(files):
             return f"Erro no arquivo {f.name}: {str(e)}", None, None, None
 
     if not dfs: return "Nenhum dado processado.", None, None, None
-    
     full_df = pd.concat(dfs, ignore_index=True)
-    
-    from utils import get_yoy_data
     return get_yoy_data(full_df)
 
 # Manter as funções voltar_nivel, apply_color_logic, etc., sem alterações.
