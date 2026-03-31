@@ -1,5 +1,5 @@
 import streamlit as st
-from logic import init_state, load_and_process_base, voltar_nivel, apply_color_logic
+from logic import init_state, load_and_process_base, voltar_nivel, apply_color_logic, get_highlights_summary
 from sidebar import render_initial_sidebar, render_advanced_filters
 from components import render_dynamic_table
 import sys
@@ -106,6 +106,17 @@ if len(uploaded_files) >= 2:
         for col, valores in filtros_dinamicos.items():
             if valores:
                 df_filtrado = df_filtrado[df_filtrado[col].astype(str).isin(valores)]
+                
+    # --- 6.1 RESUMO DE DESTAQUES (OPORTUNIDADES) ---
+    resumo_opps = get_highlights_summary(df_filtrado, ano_at, ano_ant)
+    
+    if resumo_opps:
+        with st.expander("💡 **Destaques de Produtividade YoY**", expanded=True):
+            st.markdown("Principais oportunidades de redução:")
+            for item in resumo_opps:
+                st.write(item)
+    else:
+        st.info("Nenhuma oportunidade de produtividade acima de R$ 1.000,00 identificada no período selecionado.")
     
     # --- 7. DRILL-DOWN ---
     df_active = df_filtrado.copy()

@@ -35,6 +35,55 @@ def obter_dimensoes_validas(df, ano_at, ano_ant):
                 validas.append(col)
     return validas
 
+def get_highlights_summary(df, ano_at, ano_ant):
+    """
+    Identifica as top 10 oportunidades de produtividade (economias >= 1000).
+    """
+    if df.empty:
+        return []
+
+    # 1. Agrupamos por Conta e Centro de Custo para calcular o Delta total no período
+    grouped = df.groupby(['Desc_Conta', 'Centro_Custo', 'Ano'], observed=True)['Valor'].sum().unstack('Ano').fillna(0)
+    
+    # Garantia de paridade de colunas
+    for a in [ano_at, ano_ant]:
+        if a not in grouped.columns:
+            grouped[a] = 0
+            
+    grouped['Delta'] = grouped[ano_at] - grouped[ano_ant]
+    
+    # 2. Filtramos apenas produtividade real (Redução de custo <= -1000)
+    opps = grouped[grouped['Delta'] <= -1000].copy()
+    
+    if opps.empty:
+        return []
+
+    # 3. Ranking das Top 10 Contas com maior economia acumulada
+    contas_ranking = opps.groupby('Desc_Conta', observed=True)['Delta'].sum().sort_values()
+    top_contas = contas_ranking.head(5)
+    
+    summary = []
+    for conta in top_contas.index:
+        # Buscamos os Centros de Custo que mais contribuíram para essa conta específica
+        ccs_da_conta = opps.loc[conta].sort_values('Delta').head(3) # Limitamos a 3 para manter o texto limpo
+        
+        cc_items = []
+        for cc, row in ccs_da_conta.iterrows():
+            valor_formatado = format_brl(row['Delta']).replace("$", r"\$")
+            cc_items.append(f"{cc} ({valor_formatado})")
+        
+        if not cc_items: continue
+            
+        # Formatação gramatical (vírgula e "e")
+        if len(cc_items) > 1:
+            texto_ccs = ", ".join(cc_items[:-1]) + " e " + cc_items[-1]
+        else:
+            texto_ccs = cc_items[0]
+            
+        summary.append(f"- A conta **{conta}** com os centros de custo {texto_ccs}")
+        
+    return summary
+
 @st.cache_data(show_spinner="Otimizando base de dados...")
 def load_and_process_base(files):
     dfs = []
