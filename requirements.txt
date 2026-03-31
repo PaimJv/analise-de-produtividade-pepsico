@@ -4,4 +4,3 @@ plotly
 openpyxl
 groq
 python-calamine
-calendar
