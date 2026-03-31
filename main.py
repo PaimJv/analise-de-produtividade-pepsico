@@ -14,7 +14,7 @@ if getattr(sys, 'frozen', False):
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(
     page_title="Auditoria Estratégica Facilities",
-    page_icon="🕵️‍♂️",
+    page_icon="https://raw.githubusercontent.com/PaimJv/analise-financeira-pepsico/db28a88acbdc6ae9a227d018546b1479e9eb94b0/logo-projeto-custos.ico",
     layout="wide"
 )
 
