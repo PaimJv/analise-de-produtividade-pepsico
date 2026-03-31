@@ -19,6 +19,7 @@
         "Texto breve material"
     ],
     "Data_Lancamento": [
+        "Data de lançamento",
         "Dt.lçto",
         "/2025",
         "/2026",
@@ -44,6 +45,7 @@
         "CDV MEGA CURITIBA"
     ],
     "Centro_Custo": [
+        "Centro custo",
         "BR10001",
         "BR10004",
         "BR10015",
