@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 from logic import reset_navigation
 from utils import LABELS_MAP
 
