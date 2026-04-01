@@ -1,7 +1,10 @@
 import streamlit as st
 import pandas as pd
-import gc, calendar, json, os, io, hashlib
-from utils import mapeamento, get_yoy_data, LABELS_MAP
+import gc
+import calendar
+import json, os
+import io
+from utils import mapeamento, get_yoy_data
 
 def to_excel(df):
     """Converte um DataFrame para o formato binário do Excel (XLSX)."""
@@ -209,22 +212,16 @@ def load_and_process_base(files):
             cod = df_temp['Classe_Custo'].fillna("000000").astype(str) if 'Classe_Custo' in df_temp.columns else "000000"
             df_temp['Desc_Conta'] = den + " - " + cod
 
-            # --- 6. OTIMIZAÇÃO DE MEMÓRIA E TIPAGEM (CORREÇÃO DE NULOS) ---
+            # 6. OTIMIZAÇÃO DE MEMÓRIA E TIPAGEM
             if 'Valor' in df_temp.columns:
                 if df_temp['Valor'].dtype == object:
                     df_temp['Valor'] = df_temp['Valor'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
                 df_temp['Valor'] = pd.to_numeric(df_temp['Valor'], errors='coerce').fillna(0).astype('float32')
 
-            # Consolidação da limpeza e tipagem em um único passo para evitar erro de categoria
-            cols_finais = ['Desc_Conta', 'Centro_Custo', 'VP', 'Localidade', 'P_L', 'Desc_Material']
-            for col in cols_finais:
+            for col in ['Desc_Conta', 'Centro_Custo', 'VP', 'Localidade', 'P_L']:
                 if col in df_temp.columns:
-                    df_temp[col] = (df_temp[col]
-                                    .astype(str)
-                                    .str.strip()
-                                    .replace(['nan', 'None', '<NA>', ''], "Não Especificado")
-                                    .astype('category'))
-            
+                    df_temp[col] = df_temp[col].fillna("Não Informado").astype('category')
+
             dfs.append(df_temp)
             gc.collect()
 
@@ -285,67 +282,51 @@ def get_trend_text(df_item):
     return " 📈 Tendência: Elevação ou Estabilidade."
 
 def prepare_report_data(df, dims, ano_at, ano_ant):
-    """
-    Pre-calcula os dados garantindo que nenhum valor seja descartado (Lossless).
-    Os Materiais (Desc_Material) são preservados mesmo sem paridade YoY.
-    """
+    """Pre-calcula os dados garantindo que nenhum valor seja descartado (Lossless)."""
     df_clean = df.copy()
     dims_com_paridade = []
+    dims_existentes = [d for d in dims if d in df_clean.columns]
     
-    # 1. IDENTIFICAÇÃO DE PARIDADE (Níveis de Gestão)
-    # Verificamos a existência de dados em ambos os anos para as dimensões superiores.
-    # O Desc_Material é excluído desta trava para ser puramente informativo.
     for d in dims:
-        if d in df_clean.columns and d != 'Desc_Material':
+        if d in df_clean.columns:
+            # Verifica se o ano ATUAL tem algum dado que não seja nulo para esta coluna
             existe_no_atual = df_clean[df_clean['Ano'] == ano_at][d].notna().any()
+            # Verifica se o ano ANTERIOR tem algum dado que não seja nulo para esta coluna
             existe_no_anterior = df_clean[df_clean['Ano'] == ano_ant][d].notna().any()
             
+            # A coluna só entra no relatório se "viver" nos dois anos
             if existe_no_atual and existe_no_anterior:
                 dims_com_paridade.append(d)
     
-    # # Altere o loop de preenchimento:
-    # for c in dims_com_paridade + ['Desc_Material']: # <--- Force a inclusão do Material
-    #     if c in df_clean.columns:
-    #         df_clean[c] = df_clean[c].astype(str).str.strip().replace(['nan', 'None', '<NA>', ''], "Não Especificado")
-    
-    # 2. PADRONIZAÇÃO DE TIPOS E NULOS (Blindagem para Streamlit Cloud/Linux)
+    # FORÇAMOS o Mês a ser um inteiro puro para matar a memória do tipo 'category'
     if 'Mes' in df_clean.columns:
         df_clean['Mes'] = df_clean['Mes'].astype(int)
     
-    # Unificamos o rótulo de nulos para garantir que o agrupamento não ignore linhas
-    # colunas_para_higienizar = dims_com_paridade + ['Desc_Material']
-    # for c in colunas_para_higienizar:
+    # todas_cols = ['Desc_Conta', 'P_L', 'VP', 'Localidade', 'Centro_Custo', 'Desc_Material']
+    
+    # AJUSTE AQUI: Convertemos para string ANTES de preencher o vazio
+    # for c in todas_cols:
+    for c in dims_com_paridade + ['Desc_Material']:
+        if c in df_clean.columns:
+            # Ao converter para str, os NaNs viram a string 'nan'
+            df_clean[c] = df_clean[c].astype(str).replace(['nan', 'None', '<NA>'], "Não Informado")
+    
+    # for c in dims_existentes + ['Desc_Material']:
     #     if c in df_clean.columns:
-    #         # Forçamos string, removemos espaços e tratamos nulos de diversas origens
-    #         df_clean[c] = (
-    #             df_clean[c]
-    #             .astype(str)
-    #             .str.strip()
-    #             .replace(['nan', 'None', '<NA>', ''], "Não Especificado")
-    #         )
+    #         df_clean[c] = df_clean[c].astype(str).replace(['nan', 'None', '<NA>'], "Não Informado")
     
-    # 3. AGRUPAMENTO MESTRE (Lossless)
-    # Incluímos o 'Desc_Material' no índice do agrupamento. 
-    # Isso garante que o valor de cada objeto sobreviva ao pivot, mesmo sem paridade.
-    cols_agrupamento = dims_com_paridade + ['Desc_Material', 'Mes', 'Ano']
-    
+    # O restante da função permanece igual
     agrupado = (
-        df_clean.groupby(cols_agrupamento, observed=True)['Valor']
+        df_clean.groupby(dims_com_paridade + ['Mes', 'Ano'], observed=True)['Valor']
         .sum()
-        .unstack(level='Ano') # Transforma os Anos em colunas
-        .fillna(0)            # Valores ausentes em um dos anos viram 0 (sem descarte)
+        .unstack(level='Ano')
+        .fillna(0)
     )
     
-    # 4. GARANTIA DE INTEGRIDADE DAS COLUNAS
-    # Caso um ano inteiro não exista no arquivo (raro, mas possível), criamos a coluna zerada
     for a in [ano_at, ano_ant]:
-        if a not in agrupado.columns:
-            agrupado[a] = 0.0
-            
-    # 5. CÁLCULO DO DELTA (Impacto Financeiro)
-    agrupado['Delta'] = agrupado[ano_at] - agrupado[ano_ant]
+        if a not in agrupado.columns: agrupado[a] = 0
     
-    # Retornamos o DataFrame agrupado e a lista de dimensões que passaram na paridade
+    agrupado['Delta'] = agrupado[ano_at] - agrupado[ano_ant]
     return agrupado, dims_com_paridade
 
 def render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade=0, filtro_contexto=None, selecao_meses=None):
@@ -420,20 +401,14 @@ def render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade=0,
             sub_impacto = df_item['Delta'].groupby(level=dims[profundidade+1]).sum().apply(meets_foco).any()
 
         if meets_foco(var_total) or sub_impacto:
-            # 1. Definimos o nome amigável usando o LABELS_MAP
-            label_dim = LABELS_MAP.get(col, col)
-            label_pref = '📌' if profundidade == 0 else '➥'
-            label_visual = f"{label_pref} {label_dim}: {item} | Total Período: {format_brl(var_total)}"
+            label = f"{'📌' if profundidade == 0 else '➥'} {item} | Total Período: {format_brl(var_total)}"
             
-            # 2. Geramos o ID único (O seu código já calculava, agora vamos USAR)
-            path_id = hashlib.md5(str(filtro_contexto).encode()).hexdigest()[:6]
-            chave_unificadora = f"exp_{profundidade}_{item}_{col}_{path_id}".replace(" ", "_")
-            
-            # 3. AQUI ESTAVA O ERRO: Use a 'chave_unificadora' no parâmetro key
-            with st.expander(label_visual, key=chave_unificadora):
-                st.write(f"**Variação Mensal YoY ({label_dim}):**")
+            # Usamos uma chave simples para o expander (apenas item e profundidade)
+            with st.expander(label, key=f"exp_{profundidade}_{item}"):
+                st.write("**Variação Mensal YoY (Impacto no Resultado):**")
                 
                 if not delta_mensal.empty:
+                    # O segredo do layout: st.columns recebe o tamanho exato do que sobrou no filtro
                     cols = st.columns(len(delta_mensal))
                     for idx, m_num in enumerate(delta_mensal.index):
                         with cols[idx]:
@@ -444,5 +419,5 @@ def render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade=0,
                 novo_contexto = (filtro_contexto or {}).copy()
                 novo_contexto[col] = item
                 
-                # RECURSÃO
+                # RECURSÃO: Passamos o selecao_meses adiante
                 render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade + 1, novo_contexto, selecao_meses=selecao_meses)
