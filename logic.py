@@ -209,15 +209,25 @@ def load_and_process_base(files):
             cod = df_temp['Classe_Custo'].fillna("000000").astype(str) if 'Classe_Custo' in df_temp.columns else "000000"
             df_temp['Desc_Conta'] = den + " - " + cod
 
-            # 6. OTIMIZAÇÃO DE MEMÓRIA E TIPAGEM
+            # --- 6. OTIMIZAÇÃO DE MEMÓRIA E TIPAGEM (CORREÇÃO DE NULOS) ---
             if 'Valor' in df_temp.columns:
                 if df_temp['Valor'].dtype == object:
                     df_temp['Valor'] = df_temp['Valor'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
                 df_temp['Valor'] = pd.to_numeric(df_temp['Valor'], errors='coerce').fillna(0).astype('float32')
 
-            for col in ['Desc_Conta', 'Centro_Custo', 'VP', 'Localidade', 'P_L']:
+            # Incluímos Desc_Material na lista e mudamos para "Não Especificado"
+            cols_categoricas = ['Desc_Conta', 'Centro_Custo', 'VP', 'Localidade', 'P_L', 'Desc_Material']
+            for col in cols_categoricas:
                 if col in df_temp.columns:
-                    df_temp[col] = df_temp[col].fillna("Não Informado").astype('category')
+                    # Preenchemos o nulo ANTES de virar categoria para a Web não descartar
+                    df_temp[col] = df_temp[col].astype(str).replace(['nan', 'None', '<NA>', ''], "Não Especificado").astype('category')
+            
+            # Unificamos o rótulo para "Não Especificado" e incluímos o Material na limpeza inicial
+            cols_limpeza = ['Desc_Conta', 'Centro_Custo', 'VP', 'Localidade', 'P_L', 'Desc_Material']
+            for col in cols_limpeza:
+                if col in df_temp.columns:
+                    # Forçamos string ANTES do fillna para evitar o erro de Categorical
+                    df_temp[col] = df_temp[col].astype(str).str.strip().replace(['nan', 'None', '<NA>', ''], "Não Especificado").astype('category')
 
             dfs.append(df_temp)
             gc.collect()
@@ -279,51 +289,67 @@ def get_trend_text(df_item):
     return " 📈 Tendência: Elevação ou Estabilidade."
 
 def prepare_report_data(df, dims, ano_at, ano_ant):
-    """Pre-calcula os dados garantindo que nenhum valor seja descartado (Lossless)."""
+    """
+    Pre-calcula os dados garantindo que nenhum valor seja descartado (Lossless).
+    Os Materiais (Desc_Material) são preservados mesmo sem paridade YoY.
+    """
     df_clean = df.copy()
     dims_com_paridade = []
-    dims_existentes = [d for d in dims if d in df_clean.columns]
     
+    # 1. IDENTIFICAÇÃO DE PARIDADE (Níveis de Gestão)
+    # Verificamos a existência de dados em ambos os anos para as dimensões superiores.
+    # O Desc_Material é excluído desta trava para ser puramente informativo.
     for d in dims:
-        if d in df_clean.columns:
-            # Verifica se o ano ATUAL tem algum dado que não seja nulo para esta coluna
+        if d in df_clean.columns and d != 'Desc_Material':
             existe_no_atual = df_clean[df_clean['Ano'] == ano_at][d].notna().any()
-            # Verifica se o ano ANTERIOR tem algum dado que não seja nulo para esta coluna
             existe_no_anterior = df_clean[df_clean['Ano'] == ano_ant][d].notna().any()
             
-            # A coluna só entra no relatório se "viver" nos dois anos
             if existe_no_atual and existe_no_anterior:
                 dims_com_paridade.append(d)
     
-    # FORÇAMOS o Mês a ser um inteiro puro para matar a memória do tipo 'category'
+    # # Altere o loop de preenchimento:
+    # for c in dims_com_paridade + ['Desc_Material']: # <--- Force a inclusão do Material
+    #     if c in df_clean.columns:
+    #         df_clean[c] = df_clean[c].astype(str).str.strip().replace(['nan', 'None', '<NA>', ''], "Não Especificado")
+    
+    # 2. PADRONIZAÇÃO DE TIPOS E NULOS (Blindagem para Streamlit Cloud/Linux)
     if 'Mes' in df_clean.columns:
         df_clean['Mes'] = df_clean['Mes'].astype(int)
     
-    # todas_cols = ['Desc_Conta', 'P_L', 'VP', 'Localidade', 'Centro_Custo', 'Desc_Material']
-    
-    # AJUSTE AQUI: Convertemos para string ANTES de preencher o vazio
-    # for c in todas_cols:
-    for c in dims_com_paridade + ['Desc_Material']:
+    # Unificamos o rótulo de nulos para garantir que o agrupamento não ignore linhas
+    colunas_para_higienizar = dims_com_paridade + ['Desc_Material']
+    for c in colunas_para_higienizar:
         if c in df_clean.columns:
-            # Ao converter para str, os NaNs viram a string 'nan'
-            df_clean[c] = df_clean[c].astype(str).replace(['nan', 'None', '<NA>', ''], "Não Especificado")
+            # Forçamos string, removemos espaços e tratamos nulos de diversas origens
+            df_clean[c] = (
+                df_clean[c]
+                .astype(str)
+                .str.strip()
+                .replace(['nan', 'None', '<NA>', ''], "Não Especificado")
+            )
     
-    # for c in dims_existentes + ['Desc_Material']:
-    #     if c in df_clean.columns:
-    #         df_clean[c] = df_clean[c].astype(str).replace(['nan', 'None', '<NA>'], "Não Informado")
+    # 3. AGRUPAMENTO MESTRE (Lossless)
+    # Incluímos o 'Desc_Material' no índice do agrupamento. 
+    # Isso garante que o valor de cada objeto sobreviva ao pivot, mesmo sem paridade.
+    cols_agrupamento = dims_com_paridade + ['Desc_Material', 'Mes', 'Ano']
     
-    # O restante da função permanece igual
     agrupado = (
-        df_clean.groupby(dims_com_paridade + ['Mes', 'Ano'], observed=True)['Valor']
+        df_clean.groupby(cols_agrupamento, observed=True)['Valor']
         .sum()
-        .unstack(level='Ano')
-        .fillna(0)
+        .unstack(level='Ano') # Transforma os Anos em colunas
+        .fillna(0)            # Valores ausentes em um dos anos viram 0 (sem descarte)
     )
     
+    # 4. GARANTIA DE INTEGRIDADE DAS COLUNAS
+    # Caso um ano inteiro não exista no arquivo (raro, mas possível), criamos a coluna zerada
     for a in [ano_at, ano_ant]:
-        if a not in agrupado.columns: agrupado[a] = 0
-    
+        if a not in agrupado.columns:
+            agrupado[a] = 0.0
+            
+    # 5. CÁLCULO DO DELTA (Impacto Financeiro)
     agrupado['Delta'] = agrupado[ano_at] - agrupado[ano_ant]
+    
+    # Retornamos o DataFrame agrupado e a lista de dimensões que passaram na paridade
     return agrupado, dims_com_paridade
 
 def render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade=0, filtro_contexto=None, selecao_meses=None):
