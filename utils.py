@@ -17,17 +17,6 @@ mapeamento = {
         'DIRETORIA': 'Diretoria'
 }
 
-LABELS_MAP = {
-    'Desc_Conta': 'Conta Contábil',
-    'P_L': 'Linha de P&L',
-    'VP': 'Vice-Presidência',
-    'Localidade': 'Unidade / Planta',
-    'Centro_Custo': 'Centro de Custo',
-    'Desc_Material': 'Material',
-    'Valor': 'Valor',
-    'Data_Lancamento': 'Data'
-}
-
 def clean_data(df):
     """
     Realiza a limpeza e padronização utilizando o mapeamento global.    
@@ -85,8 +74,7 @@ def get_yoy_data(df):
     anos = sorted([int(a) for a in anos_disponiveis], reverse=True)
     
     if len(anos) < 2:
-        return "O arquivo enviado não contém dados de dois anos diferentes para comparação.", 0, 0, None
-        # return pd.DataFrame(), 0, 0, None
+        return pd.DataFrame(), 0, 0, None
         
     ano_at = anos[0]
     ano_ant = anos[1]
