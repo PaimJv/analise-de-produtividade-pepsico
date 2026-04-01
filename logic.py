@@ -1,9 +1,6 @@
 import streamlit as st
 import pandas as pd
-import gc
-import calendar
-import json, os
-import io
+import gc, calendar, json, os, io, hashlib
 from utils import mapeamento, get_yoy_data
 
 def to_excel(df):
@@ -309,7 +306,7 @@ def prepare_report_data(df, dims, ano_at, ano_ant):
     for c in dims_com_paridade + ['Desc_Material']:
         if c in df_clean.columns:
             # Ao converter para str, os NaNs viram a string 'nan'
-            df_clean[c] = df_clean[c].astype(str).replace(['nan', 'None', '<NA>'], "Não Informado")
+            df_clean[c] = df_clean[c].astype(str).replace(['nan', 'None', '<NA>', ''], "Não Especificado")
     
     # for c in dims_existentes + ['Desc_Material']:
     #     if c in df_clean.columns:
@@ -402,6 +399,9 @@ def render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade=0,
 
         if meets_foco(var_total) or sub_impacto:
             label = f"{'📌' if profundidade == 0 else '➥'} {item} | Total Período: {format_brl(var_total)}"
+            
+            path_id = hashlib.md5(str(filtro_contexto).encode()).hexdigest()[:6]
+            chave_unificadora = f"exp_{profundidade}_{item}_{col}_{path_id}"
             
             # Usamos uma chave simples para o expander (apenas item e profundidade)
             with st.expander(label, key=f"exp_{profundidade}_{item}"):
