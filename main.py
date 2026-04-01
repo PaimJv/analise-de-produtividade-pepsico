@@ -99,6 +99,7 @@ if pode_processar:
 
     # --- 5. FILTROS AVANÇADOS ---
     # Agora passando os 4 argumentos necessários
+    
     selecao_meses, dimensoes_ia, foco_res, filtros_dinamicos = render_advanced_filters(
         df_raw, 
         dims_com_paridade, 
