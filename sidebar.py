@@ -120,12 +120,7 @@ def render_advanced_filters(df_raw, dimensoes_validas, ano_at, ano_ant):
             
             # 4. Mantemos o que já estava selecionado no estado para não sumir da lista
             
-            opcoes_disponiveis = sorted([
-                str(x) if pd.notna(x) and str(x).lower() != 'nan' else "Não Especificado" 
-                for x in raw_unique
-            ])
-            
-            # opcoes_disponiveis = sorted(df_temp[dim].astype(str).unique().tolist())
+            opcoes_disponiveis = sorted(df_temp[dim].astype(str).unique().tolist())
             
             # 3. Gestão de estado (seu código original)
             # selecionados_atuais = [str(x) for x in st.session_state.get(f"dyn_filter_{dim}", [])]
