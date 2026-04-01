@@ -5,3 +5,4 @@ openpyxl
 groq
 python-calamine
 xlsxwriter
+hashlib
