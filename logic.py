@@ -1,8 +1,20 @@
 import streamlit as st
 import pandas as pd
-import gc # Garbage Collector
+import gc
+import calendar
 import json, os
+import io
 from utils import mapeamento, get_yoy_data
+
+def to_excel(df):
+    """Converte um DataFrame para o formato binário do Excel (XLSX)."""
+    output = io.BytesIO()
+    # Usamos o mecanismo xlsxwriter para criar o arquivo na memória
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=True, sheet_name='Produtividade_YoY')
+        # Aqui você poderia até adicionar formatação específica nas células do Excel se quisesse
+        
+    return output.getvalue()
 
 def carregar_referencia():
     """Carrega o JSON de assinaturas se ele existir."""
