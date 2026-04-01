@@ -110,18 +110,24 @@ def render_advanced_filters(df_raw, dimensoes_validas, ano_at, ano_ant):
             
             # 3. Extração de opções com blindagem contra tipos mistos (TypeError)
             # Convertemos para string antes do unique() e sorted()
+            
+            raw_unique = df_temp[dim].dropna().unique().tolist()
+            
             label_amigavel = LABELS_MAP.get(dim, dim)
-            opcoes_disponiveis = sorted(df_temp[dim].astype(str).unique().tolist())
-            # opcoes_disponiveis = sorted(df_temp[dim].astype(str).unique().tolist())
+            opcoes_disponiveis = sorted([str(x) for x in raw_unique])
             
             # 4. Mantemos o que já estava selecionado no estado para não sumir da lista
-            # selecionados_atuais = [str(x) for x in st.session_state.get(f"dyn_filter_{dim}", [])]
-            # opcoes_finais = sorted(list(set(opcoes_disponiveis) | set(selecionados_atuais)))
             
             opcoes_disponiveis = sorted(df_temp[dim].astype(str).unique().tolist())
             
             # 3. Gestão de estado (seu código original)
-            selecionados_atuais = [str(x) for x in st.session_state.get(f"dyn_filter_{dim}", [])]
+            # selecionados_atuais = [str(x) for x in st.session_state.get(f"dyn_filter_{dim}", [])]
+            
+            estado_atual = st.session_state.get(f"dyn_filter_{dim}", [])
+            if not isinstance(estado_atual, list):
+                estado_atual = []
+            
+            selecionados_atuais = [str(x) for x in estado_atual]
             opcoes_finais = sorted(list(set(opcoes_disponiveis) | set(selecionados_atuais)))
 
             # 5. Renderização do Multiselect (Barra de busca nativa)
