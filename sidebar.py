@@ -112,8 +112,7 @@ def render_advanced_filters(df_raw, dimensoes_validas, ano_at, ano_ant):
             # 3. Extração de opções com blindagem contra tipos mistos (TypeError)
             # Convertemos para string antes do unique() e sorted()
             
-            # raw_unique = df_temp[dim].dropna().unique().tolist()
-            raw_unique = df_temp[dim].unique()
+            raw_unique = df_temp[dim].dropna().unique().tolist()
             
             label_amigavel = LABELS_MAP.get(dim, dim)
             opcoes_disponiveis = sorted([str(x) for x in raw_unique])
