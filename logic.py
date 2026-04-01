@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import gc, calendar, json, os, io, hashlib
-from utils import mapeamento, get_yoy_data
+from utils import mapeamento, get_yoy_data, LABELS_MAP
 
 def to_excel(df):
     """Converte um DataFrame para o formato binário do Excel (XLSX)."""
@@ -398,17 +398,20 @@ def render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade=0,
             sub_impacto = df_item['Delta'].groupby(level=dims[profundidade+1]).sum().apply(meets_foco).any()
 
         if meets_foco(var_total) or sub_impacto:
-            label = f"{'📌' if profundidade == 0 else '➥'} {item} | Total Período: {format_brl(var_total)}"
+            # 1. Definimos o nome amigável usando o LABELS_MAP
+            label_dim = LABELS_MAP.get(col, col)
+            label_pref = '📌' if profundidade == 0 else '➥'
+            label_visual = f"{label_pref} {label_dim}: {item} | Total Período: {format_brl(var_total)}"
             
+            # 2. Geramos o ID único (O seu código já calculava, agora vamos USAR)
             path_id = hashlib.md5(str(filtro_contexto).encode()).hexdigest()[:6]
-            chave_unificadora = f"exp_{profundidade}_{item}_{col}_{path_id}"
+            chave_unificadora = f"exp_{profundidade}_{item}_{col}_{path_id}".replace(" ", "_")
             
-            # Usamos uma chave simples para o expander (apenas item e profundidade)
-            with st.expander(label, key=f"exp_{profundidade}_{item}"):
-                st.write("**Variação Mensal YoY (Impacto no Resultado):**")
+            # 3. AQUI ESTAVA O ERRO: Use a 'chave_unificadora' no parâmetro key
+            with st.expander(label_visual, key=chave_unificadora):
+                st.write(f"**Variação Mensal YoY ({label_dim}):**")
                 
                 if not delta_mensal.empty:
-                    # O segredo do layout: st.columns recebe o tamanho exato do que sobrou no filtro
                     cols = st.columns(len(delta_mensal))
                     for idx, m_num in enumerate(delta_mensal.index):
                         with cols[idx]:
@@ -419,5 +422,5 @@ def render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade=0,
                 novo_contexto = (filtro_contexto or {}).copy()
                 novo_contexto[col] = item
                 
-                # RECURSÃO: Passamos o selecao_meses adiante
+                # RECURSÃO
                 render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade + 1, novo_contexto, selecao_meses=selecao_meses)
