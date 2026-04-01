@@ -215,20 +215,16 @@ def load_and_process_base(files):
                     df_temp['Valor'] = df_temp['Valor'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
                 df_temp['Valor'] = pd.to_numeric(df_temp['Valor'], errors='coerce').fillna(0).astype('float32')
 
-            # Incluímos Desc_Material na lista e mudamos para "Não Especificado"
-            cols_categoricas = ['Desc_Conta', 'Centro_Custo', 'VP', 'Localidade', 'P_L', 'Desc_Material']
-            for col in cols_categoricas:
+            # Consolidação da limpeza e tipagem em um único passo para evitar erro de categoria
+            cols_finais = ['Desc_Conta', 'Centro_Custo', 'VP', 'Localidade', 'P_L', 'Desc_Material']
+            for col in cols_finais:
                 if col in df_temp.columns:
-                    # Preenchemos o nulo ANTES de virar categoria para a Web não descartar
-                    df_temp[col] = df_temp[col].astype(str).replace(['nan', 'None', '<NA>', ''], "Não Especificado").astype('category')
+                    df_temp[col] = (df_temp[col]
+                                    .astype(str)
+                                    .str.strip()
+                                    .replace(['nan', 'None', '<NA>', ''], "Não Especificado")
+                                    .astype('category'))
             
-            # Unificamos o rótulo para "Não Especificado" e incluímos o Material na limpeza inicial
-            cols_limpeza = ['Desc_Conta', 'Centro_Custo', 'VP', 'Localidade', 'P_L', 'Desc_Material']
-            for col in cols_limpeza:
-                if col in df_temp.columns:
-                    # Forçamos string ANTES do fillna para evitar o erro de Categorical
-                    df_temp[col] = df_temp[col].astype(str).str.strip().replace(['nan', 'None', '<NA>', ''], "Não Especificado").astype('category')
-
             dfs.append(df_temp)
             gc.collect()
 
@@ -317,16 +313,16 @@ def prepare_report_data(df, dims, ano_at, ano_ant):
         df_clean['Mes'] = df_clean['Mes'].astype(int)
     
     # Unificamos o rótulo de nulos para garantir que o agrupamento não ignore linhas
-    colunas_para_higienizar = dims_com_paridade + ['Desc_Material']
-    for c in colunas_para_higienizar:
-        if c in df_clean.columns:
-            # Forçamos string, removemos espaços e tratamos nulos de diversas origens
-            df_clean[c] = (
-                df_clean[c]
-                .astype(str)
-                .str.strip()
-                .replace(['nan', 'None', '<NA>', ''], "Não Especificado")
-            )
+    # colunas_para_higienizar = dims_com_paridade + ['Desc_Material']
+    # for c in colunas_para_higienizar:
+    #     if c in df_clean.columns:
+    #         # Forçamos string, removemos espaços e tratamos nulos de diversas origens
+    #         df_clean[c] = (
+    #             df_clean[c]
+    #             .astype(str)
+    #             .str.strip()
+    #             .replace(['nan', 'None', '<NA>', ''], "Não Especificado")
+    #         )
     
     # 3. AGRUPAMENTO MESTRE (Lossless)
     # Incluímos o 'Desc_Material' no índice do agrupamento. 
