@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 from logic import reset_navigation
 from utils import LABELS_MAP
 
@@ -110,9 +111,14 @@ def render_advanced_filters(df_raw, dimensoes_validas, ano_at, ano_ant):
             
             # 3. Extração de opções com blindagem contra tipos mistos (TypeError)
             # Convertemos para string antes do unique() e sorted()
+            valores_brutos = df_temp[dim].unique().tolist()
+            
             label_amigavel = LABELS_MAP.get(dim, dim)
-            opcoes_disponiveis = sorted(df_temp[dim].astype(str).unique().tolist())
             # opcoes_disponiveis = sorted(df_temp[dim].astype(str).unique().tolist())
+            opcoes_disponiveis = sorted([
+                str(x) if pd.notna(x) and str(x).lower() != 'nan' else "Não Especificado" 
+                for x in valores_brutos
+            ])
             
             # 4. Mantemos o que já estava selecionado no estado para não sumir da lista
             # selecionados_atuais = [str(x) for x in st.session_state.get(f"dyn_filter_{dim}", [])]
