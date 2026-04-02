@@ -1,20 +1,23 @@
+from utils import LABELS_MAP
 import streamlit as st
-from logic import init_state, load_and_process_base, voltar_nivel, apply_color_logic
+from logic import init_state, load_and_process_base, voltar_nivel, apply_color_logic, get_highlights_summary
 from sidebar import render_initial_sidebar, render_advanced_filters
 from components import render_dynamic_table
 import sys
 import gc
 import pandas as pd
+from PIL import Image
+import os
 
 # --- 0. COMPATIBILIDADE EXECUTÁVEL ---
 if getattr(sys, 'frozen', False):
     bundle_dir = sys._MEIPASS
     sys.path.append(bundle_dir)
-
+    
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(
-    page_title="Auditoria Estratégica Facilities",
-    page_icon="🕵️‍♂️",
+    page_title="Análise de produtividade PepsiCo",
+    page_icon="https://raw.githubusercontent.com/PaimJv/analise-financeira-pepsico/db28a88acbdc6ae9a227d018546b1479e9eb94b0/logo-projeto-custos.ico",
     layout="wide"
 )
 
@@ -35,36 +38,41 @@ if 'dims_com_paridade' not in st.session_state:
     st.session_state.dims_com_paridade = []
 
 # --- 3. INTERFACE INICIAL ---
-st.title("📊 Auditoria de Produtividade YoY")
-st.caption("Análise de Variação de Custos com Auditoria Exaustiva por IA")
+st.title("Análise de produtividade YoY")
+st.caption("Observação e destaque de oportunidades de redução de custo na PepsiCo.")
 st.markdown("---")
 
-# Renderiza a sidebar inicial
-uploaded_files = render_initial_sidebar()
+# --- 3. INTERFACE INICIAL ---
+uploaded_files, modo_selecionado = render_initial_sidebar()
 
-# Proteção contra None: Se não houver arquivos, o hash é uma string vazia
-if uploaded_files:
-    # Caso o Streamlit retorne um único objeto em vez de lista (segurança extra)
-    if isinstance(uploaded_files, list):
-        current_files_hash = str([f.name for f in uploaded_files]) + str(len(uploaded_files))
-    else:
-        current_files_hash = uploaded_files.name
-else:
-    current_files_hash = ""
+# Regra de Validação Dinâmica
+pode_processar = False
+if modo_selecionado == "Arquivos Separados (YoY)" and len(uploaded_files) >= 2:
+    pode_processar = True
+elif modo_selecionado == "Arquivo Único (Biênio/Histórico)" and len(uploaded_files) == 1:
+    pode_processar = True
 
-# Lógica para detectar se os arquivos mudaram (para resetar o cache da sessão)
-# current_files_hash = str([f.name for f in uploaded_files]) + str(len(uploaded_files))
-
-if uploaded_files and current_files_hash != st.session_state.last_files_hash:
-    st.session_state.df_raw = None # Força reprocessamento
-    st.session_state.last_files_hash = current_files_hash
-    st.session_state.drill_path = [] # Reseta navegação ao trocar arquivos
-
-if len(uploaded_files) >= 2:
+# Lógica de Hash e Reset (Mantenha o que já temos, mas use pode_processar)
+if pode_processar:
+    current_files_hash = str([f.name for f in uploaded_files]) + modo_selecionado
     
+    if current_files_hash != st.session_state.last_files_hash:
+        st.session_state.df_raw = None
+        st.session_state.last_files_hash = current_files_hash
+        st.session_state.drill_path = []
+
     # --- 4. PROCESSAMENTO OTIMIZADO ---
     if st.session_state.df_raw is None:
-        with st.spinner("🚀 Otimizando base de dados..."):
+        with st.spinner("🚀 Analisando base de dados..."):
+            # A função load_and_process_base já recebe uma lista, 
+            # então ela funciona tanto com 1 quanto com 2 arquivos.
+            res, at, ant, aviso = load_and_process_base(uploaded_files)
+            
+            # ... (Restante da lógica de salvamento no session_state permanece igual)
+
+    # --- 4. PROCESSAMENTO OTIMIZADO ---
+    if st.session_state.df_raw is None:
+        with st.spinner("Otimizando base de dados..."):
             res, at, ant, aviso = load_and_process_base(uploaded_files)
             
             if isinstance(res, pd.DataFrame):
@@ -116,6 +124,17 @@ if len(uploaded_files) >= 2:
     if st.session_state.aviso_incompleto:
             a = st.session_state.aviso_incompleto
             st.warning(f"⚠️ **Atenção:** O mês de **{a['mes_nome']}** está incompleto no relatório (registros apenas até o dia **{a['dia']}**).")
+                
+    # --- 6.1 RESUMO DE DESTAQUES (OPORTUNIDADES) ---
+    resumo_opps = get_highlights_summary(df_filtrado, ano_at, ano_ant)
+    
+    if resumo_opps:
+        with st.expander("💡 **Destaques de Produtividade YoY**", expanded=True):
+            st.markdown("Principais oportunidades de redução:")
+            for item in resumo_opps:
+                st.write(item)
+    else:
+        st.info("Nenhuma oportunidade de produtividade acima de R$ 1.000,00 identificada no período selecionado.")
 
     path_txt = " > ".join([str(v) for c, v in st.session_state.drill_path]) if st.session_state.drill_path else "Corporativo"
     # st.info(f"📍 **Localização:** `Início > {path_txt}`")
@@ -135,13 +154,14 @@ if len(uploaded_files) >= 2:
 
     if nivel < len(hierarquia):
         atual_col = hierarquia[nivel]
-        label_atual = labels.get(atual_col, atual_col)
+        # label_atual = labels.get(atual_col, atual_col)
+        label_atual = LABELS_MAP.get(atual_col, atual_col)
 
         # Cabeçalho e Botão Voltar
         st.markdown("---")
         c1, c2 = st.columns([4, 1])
         with c1:
-            st.subheader(f"📂 Visão Mensal: {label_atual}")
+            st.subheader(f"Tabela mensal: {label_atual}")
         with c2:
             if nivel > 0:
                 st.write("##")
@@ -153,10 +173,12 @@ if len(uploaded_files) >= 2:
         df_pivot = render_dynamic_table(df_active, atual_col, ano_at, ano_ant)
         cols_meses = [c for c in df_pivot.columns if c != 'Total Geral']
 
+        cols_para_estilizar = cols_meses + ['Total Geral']
+
         # Exibição da Tabela
         event = st.dataframe(
             df_pivot.style.format(precision=2, decimal=',', thousands='.')
-            .map(apply_color_logic, subset=cols_meses),
+            .map(apply_color_logic, subset=cols_para_estilizar),
             use_container_width=True,
             on_select="rerun",
             selection_mode="single-row",
@@ -172,7 +194,7 @@ if len(uploaded_files) >= 2:
                 st.rerun()
 
         st.markdown("---")
-        st.subheader("📑 Auditoria Hierárquica de Variações")
+        st.subheader("Resultados encontrados")
 
         if not dimensoes_ia:
             st.warning("Selecione as dimensões na barra lateral para o relatório detalhado.")

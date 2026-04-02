@@ -1,8 +1,20 @@
 import streamlit as st
 import pandas as pd
-import gc # Garbage Collector
+import gc
+import calendar
 import json, os
+import io
 from utils import mapeamento, get_yoy_data
+
+def to_excel(df):
+    """Converte um DataFrame para o formato binário do Excel (XLSX)."""
+    output = io.BytesIO()
+    # Usamos o mecanismo xlsxwriter para criar o arquivo na memória
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=True, sheet_name='Produtividade_YoY')
+        # Aqui você poderia até adicionar formatação específica nas células do Excel se quisesse
+        
+    return output.getvalue()
 
 def carregar_referencia():
     """Carrega o JSON de assinaturas se ele existir."""
@@ -35,6 +47,55 @@ def obter_dimensoes_validas(df, ano_at, ano_ant):
                 validas.append(col)
     return validas
 
+def get_highlights_summary(df, ano_at, ano_ant):
+    """
+    Identifica as top 10 oportunidades de produtividade (economias >= 1000).
+    """
+    if df.empty:
+        return []
+
+    # 1. Agrupamos por Conta e Centro de Custo para calcular o Delta total no período
+    grouped = df.groupby(['Desc_Conta', 'Centro_Custo', 'Ano'], observed=True)['Valor'].sum().unstack('Ano').fillna(0)
+    
+    # Garantia de paridade de colunas
+    for a in [ano_at, ano_ant]:
+        if a not in grouped.columns:
+            grouped[a] = 0
+            
+    grouped['Delta'] = grouped[ano_at] - grouped[ano_ant]
+    
+    # 2. Filtramos apenas produtividade real (Redução de custo <= -1000)
+    opps = grouped[grouped['Delta'] <= -1000].copy()
+    
+    if opps.empty:
+        return []
+
+    # 3. Ranking das Top 10 Contas com maior economia acumulada
+    contas_ranking = opps.groupby('Desc_Conta', observed=True)['Delta'].sum().sort_values()
+    top_contas = contas_ranking.head(5)
+    
+    summary = []
+    for conta in top_contas.index:
+        # Buscamos os Centros de Custo que mais contribuíram para essa conta específica
+        ccs_da_conta = opps.loc[conta].sort_values('Delta').head(3) # Limitamos a 3 para manter o texto limpo
+        
+        cc_items = []
+        for cc, row in ccs_da_conta.iterrows():
+            valor_formatado = format_brl(row['Delta']).replace("$", r"\$")
+            cc_items.append(f"{cc} ({valor_formatado})")
+        
+        if not cc_items: continue
+            
+        # Formatação gramatical (vírgula e "e")
+        if len(cc_items) > 1:
+            texto_ccs = ", ".join(cc_items[:-1]) + " e " + cc_items[-1]
+        else:
+            texto_ccs = cc_items[0]
+            
+        summary.append(f"- A conta **{conta}** com os centros de custo {texto_ccs}")
+        
+    return summary
+
 @st.cache_data(show_spinner="Otimizando base de dados...")
 def load_and_process_base(files):
     dfs = []
@@ -45,25 +106,40 @@ def load_and_process_base(files):
         try: # --- INÍCIO DO TRY POR ARQUIVO ---
             # 1. LEITURA DE AMOSTRA (100 linhas para o "detetive" ter pistas)
             if f.name.endswith('.csv'):
-                encoding_tentativa = 'utf-8-sig' 
-                try:
-                    df_header = pd.read_csv(f, sep=None, engine='python', encoding=encoding_tentativa, nrows=100)
-                except:
-                    encoding_tentativa = 'latin-1'
-                    f.seek(0)
-                    df_header = pd.read_csv(f, sep=None, engine='python', encoding=encoding_tentativa, nrows=100)
-                
+                # 1.1 DETECÇÃO DE ENCODING
+                sample_bytes = f.read(10000)
                 f.seek(0)
+                
                 try:
-                    sample = f.read(8192).decode(encoding_tentativa)
-                    dialect = csv.Sniffer().sniff(sample, delimiters=',;\t|')
+                    sample_bytes.decode('utf-8-sig')
+                    encoding_tentativa = 'utf-8-sig'
+                except UnicodeDecodeError:
+                    encoding_tentativa = 'cp1252'
+                
+                # 1.2 DETECÇÃO DE SEPARADOR (O que estava faltando antes)
+                try:
+                    sample_text = sample_bytes.decode(encoding_tentativa, errors='ignore')
+                    dialect = csv.Sniffer().sniff(sample_text, delimiters=',;\t|')
                     sep_detectado = dialect.delimiter
                 except:
                     sep_detectado = ';' # Fallback padrão SAP
+
+                # 1.3 LEITURA DO CABEÇALHO (Agora com sep e encoding definidos)
                 f.seek(0)
+                df_header = pd.read_csv(
+                    f, 
+                    sep=sep_detectado, 
+                    engine='python', 
+                    encoding=encoding_tentativa, 
+                    nrows=100
+                )
+                f.seek(0)
+                
             else:
+                # Tratamento para Excel (xlsx, xls)
                 df_header = pd.read_excel(f, engine='calamine', nrows=100)
                 sep_detectado = None
+                encoding_tentativa = None
 
             # 2. MAPEAMENTO INTELIGENTE (NOME + CONTEÚDO/SINÔNIMOS)
             colunas_reais = df_header.columns.tolist()

@@ -1,7 +1,7 @@
 """
 Para gerar o executável:
 
-python -m PyInstaller --onefile --noconsole --name "Auditoria Estrategica Facilities" --copy-metadata streamlit --collect-all streamlit --collect-all groq --collect-all plotly --collect-all openpyxl --hidden-import openpyxl.cell._writer --add-data "main.py;." --add-data "logic.py;." --add-data "sidebar.py;." --add-data "components.py;." --add-data "utils.py;." --add-data "ia_engine.py;." run_app.py
+python -m PyInstaller --onefile --noconsole --name "Analise de produtividade PepsiCo" --copy-metadata streamlit --collect-all streamlit --collect-all groq --collect-all plotly --collect-all openpyxl --hidden-import openpyxl.cell._writer --add-data "main.py;." --add-data "logic.py;." --add-data "sidebar.py;." --add-data "components.py;." --add-data "utils.py;." --add-data "ia_engine.py;." run_app.py
 
 """
 

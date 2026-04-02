@@ -1,34 +1,70 @@
 import streamlit as st
 from logic import reset_navigation
+from utils import LABELS_MAP
 
 def render_initial_sidebar():
     """
     Renderiza os controlos básicos na barra lateral antes do processamento.
     Configura o modo de comparação e o carregamento de ficheiros.
     """
-    st.sidebar.title("🔍 Parâmetros da Auditoria")
-    st.sidebar.markdown("---")
+    st.sidebar.title("Seleção de conteúdos")
     
-    uploaded_files = st.sidebar.file_uploader(
-        "Carregue os arquivos (CSV ou Excel)", 
-        type=['csv', 'xlsx', 'xls'], 
-        accept_multiple_files=True
+    modo_envio = st.sidebar.radio(
+        "Modo de Envio:",
+        ["Arquivos Separados (YoY)", "Arquivo Único (Biênio/Histórico)"],
+        index=0,
+        key="modo_envio"
     )
     
-    return uploaded_files
+    st.sidebar.markdown("---")
+    
+    if modo_envio == "Arquivos Separados (YoY)":
+        uploaded_files = st.sidebar.file_uploader(
+            "Selecione os 2 arquivos (Anos Diferentes):", 
+            accept_multiple_files=True, 
+            type=['csv', 'xlsx']
+        )
+    else:
+        # Modo Arquivo Único: desativamos o multiple_files para evitar confusão
+        uploaded_file = st.sidebar.file_uploader(
+            "Selecione o arquivo único:", 
+            accept_multiple_files=False, 
+            type=['csv', 'xlsx']
+        )
+        uploaded_files = [uploaded_file] if uploaded_file else []
+
+    return uploaded_files, modo_envio
 
 def render_advanced_filters(df_raw, dimensoes_validas, ano_at, ano_ant):
     st.sidebar.markdown("---")
     
-    # 1. Filtro de Meses
-    meses_lista = sorted(df_raw['Mes'].unique())
+    if 'Mes' in df_raw.columns:
+        meses_lista = sorted(df_raw['Mes'].unique())
+        
+        mes_max_data = df_raw[df_raw['Ano'] == ano_at]['Mes'].max()
+        
+        meses_completos = [m for m in meses_lista if m < mes_max_data]
+        
+        if not meses_completos:
+            meses_completos = meses_lista
+        
+    else:
+        st.sidebar.error("❌ Coluna 'Mes' não encontrada.")
+        meses_lista = []
+        meses_completos = []
+    
     meses_br = {1:'Jan', 2:'Fev', 3:'Mar', 4:'Abr', 5:'Mai', 6:'Jun',
                 7:'Jul', 8:'Ago', 9:'Set', 10:'Out', 11:'Nov', 12:'Dez'}
+    
+    # # 1. Filtro de Meses
+    # meses_lista = sorted(df_raw['Mes'].unique())
+    # meses_br = {1:'Jan', 2:'Fev', 3:'Mar', 4:'Abr', 5:'Mai', 6:'Jun',
+    #             7:'Jul', 8:'Ago', 9:'Set', 10:'Out', 11:'Nov', 12:'Dez'}
     
     selecao_meses = st.sidebar.multiselect(
         "2. Período (Meses):", 
         options=meses_lista, 
-        default=meses_lista,
+        default=meses_completos,
         format_func=lambda x: meses_br.get(x, x),
         key="ms_meses",
         on_change=reset_navigation
@@ -38,11 +74,10 @@ def render_advanced_filters(df_raw, dimensoes_validas, ano_at, ano_ant):
     # opcoes_hierarquia = ['Desc_Conta', 'P_L', 'VP', 'Localidade', 'Centro_Custo', 'Desc_Material']
     opcoes_hierarquia = dimensoes_validas
     dimensoes_ia = st.sidebar.multiselect(
-        "3. Dimensões para a IA:",
-        options=opcoes_hierarquia,
-        default=[
-            # 'Desc_Conta', 'Localidade'
-            ],
+        "3. Colunas a serem analisadas:",
+        options=dimensoes_validas,
+        default=dimensoes_validas,
+        format_func=lambda x: LABELS_MAP.get(x, x),
         key="ms_dimensoes",
         on_change=reset_navigation
     )
@@ -59,7 +94,7 @@ def render_advanced_filters(df_raw, dimensoes_validas, ano_at, ano_ant):
     
     if dimensoes_ia:
         st.sidebar.markdown("---")
-        st.sidebar.subheader("🎯 Filtros Inteligentes")
+        st.sidebar.subheader("Filtrar resultados:")
         
         for dim in dimensoes_ia:
             # 1. Base filtrada apenas pelos meses (ponto de partida)
@@ -75,18 +110,26 @@ def render_advanced_filters(df_raw, dimensoes_validas, ano_at, ano_ant):
             
             # 3. Extração de opções com blindagem contra tipos mistos (TypeError)
             # Convertemos para string antes do unique() e sorted()
+            label_amigavel = LABELS_MAP.get(dim, dim)
             opcoes_disponiveis = sorted(df_temp[dim].astype(str).unique().tolist())
+            # opcoes_disponiveis = sorted(df_temp[dim].astype(str).unique().tolist())
             
             # 4. Mantemos o que já estava selecionado no estado para não sumir da lista
+            # selecionados_atuais = [str(x) for x in st.session_state.get(f"dyn_filter_{dim}", [])]
+            # opcoes_finais = sorted(list(set(opcoes_disponiveis) | set(selecionados_atuais)))
+            
+            opcoes_disponiveis = sorted(df_temp[dim].astype(str).unique().tolist())
+            
+            # 3. Gestão de estado (seu código original)
             selecionados_atuais = [str(x) for x in st.session_state.get(f"dyn_filter_{dim}", [])]
             opcoes_finais = sorted(list(set(opcoes_disponiveis) | set(selecionados_atuais)))
 
             # 5. Renderização do Multiselect (Barra de busca nativa)
             escolha = st.sidebar.multiselect(
-                f"Filtrar {dim}:",
+                f"Filtrar {label_amigavel}:",
                 options=opcoes_finais,
                 key=f"dyn_filter_{dim}",
-                help=f"Lista em ordem alfabética. Opções limitadas pelas outras seleções.",
+                help=f"Selecione os filtros para especificar os resultados.",
                 on_change=reset_navigation
             )
             filtros_selecionados[dim] = escolha
