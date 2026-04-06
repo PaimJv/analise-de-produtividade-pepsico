@@ -1,68 +1,115 @@
-import pandas as pd
-import json
-import os
-from utils import mapeamento
-
-def gerar_referencia_por_arquivo(caminho_arquivo):
-    """
-    Lê um arquivo de exemplo e extrai assinaturas de dados (amostras)
-    baseadas nas colunas definidas no dicionário de mapeamento do sistema.
-    """
-    if not os.path.exists(caminho_arquivo):
-        print(f"❌ Erro: O arquivo '{caminho_arquivo}' não foi encontrado.")
-        return
-
-    print(f"🔍 Analisando conteúdo de: {caminho_arquivo}...")
-
-    # 1. Leitura inicial (usamos uma amostra de 1000 linhas para ter boa diversidade)
-    try:
-        if caminho_arquivo.endswith('.csv'):
-            # Tenta detectar o encoding e separador para CSV
-            df = pd.read_csv(caminho_arquivo, sep=None, engine='python', encoding='utf-8-sig', nrows=1000)
-        else:
-            # Para Excel, usamos o motor Calamine que você já configurou
-            df = pd.read_excel(caminho_arquivo, engine='calamine', nrows=1000)
-    except Exception as e:
-        print(f"❌ Erro ao ler o arquivo: {e}")
-        return
-
-    # 2. Construção da Base de Conhecimento
-    # O JSON terá como chave o valor do mapeamento (ex: 'Localidade', 'VP')
-    base_conhecimento = {}
-
-    # Colunas que não são métricas nem datas (onde a correspondência de texto faz sentido)
-    colunas_interesse = ['VP', 'Localidade', 'Centro_Custo', 'P_L', 'DenClsCst', 'Classe_Custo']
-
-    # Percorremos o mapeamento oficial do seu sistema
-    for nome_coluna_sap, nome_sistema in mapeamento.items():
-        # Verificamos se esta coluna faz parte das colunas que queremos rastrear por conteúdo
-        if nome_sistema in colunas_interesse:
-            
-            # Verificamos se o nome da coluna SAP existe no arquivo de exemplo
-            if nome_coluna_sap in df.columns:
-                # Extraímos os valores únicos, removemos nulos e limitamos a 150 exemplos
-                # Usamos 150 para garantir que pegamos variações de nomes de cidades e centros de custo
-                amostra = df[nome_coluna_sap].dropna().unique().tolist()
-                
-                # Armazenamos no dicionário usando o NOME DO SISTEMA como chave
-                base_conhecimento[nome_sistema] = [str(x) for x in amostra[:150]]
-                print(f"✅ Exemplos mapeados para sistema: '{nome_sistema}' (Coluna SAP: {nome_coluna_sap})")
-            else:
-                print(f"⚠️ Aviso: A coluna SAP '{nome_coluna_sap}' não foi encontrada neste arquivo.")
-
-    # 3. Exportação para JSON
-    try:
-        with open('referencia_colunas.json', 'w', encoding='utf-8') as f:
-            json.dump(base_conhecimento, f, ensure_ascii=False, indent=4)
-        print("\n🚀 Sucesso! O arquivo 'referencia_colunas.json' foi gerado e está pronto para o logic.py.")
-    except Exception as e:
-        print(f"❌ Erro ao salvar o JSON: {e}")
-
-# ==========================================
-# CONFIGURAÇÃO: Defina aqui o arquivo modelo
-# b==========================================
-if __name__ == "__main__":
-    # Coloque o caminho do arquivo que você quer usar como "professor" para o sistema
-    arquivo_modelo = "Custos Facilities 2025.xlsx" 
-    
-    gerar_referencia_por_arquivo(arquivo_modelo)
+{
+    "P_L": [
+        "Make",
+        "G&A",
+        "Move",
+        "Sell Sell",
+        "Sell Ops"
+    ],
+    "Valor": [
+        "Valor/moeda objeto",
+        "1.000,00",
+        "0,00",
+        "1,50",
+        "1,5",
+        ",0",
+        "1,"
+    ],
+    "Desc_Material": [
+        "Texto breve material"
+    ],
+    "Data_Lancamento": [
+        "Dt.lçto",
+        "/2025",
+        "/2026",
+        "01/01/2026",
+        "01/01/2025"
+    ],
+    "VP": [
+        "Total Operacoes",
+        "Total RH",
+        "Amacoco",
+        "Total Marketing",
+        "Total Supply Chain",
+        "Total Vendas",
+        "Total S&T"
+    ],
+    "Localidade": [
+        "FABRICA PETROLINA",
+        "ESCRITORIO CENTRAL",
+        "TRANSPORTADORA - ITU",
+        "FABRICA ITU",
+        "FABRICA SOROCABA",
+        "CDV MEGA RIO",
+        "CDV MEGA CURITIBA"
+    ],
+    "Centro_Custo": [
+        "BR10001",
+        "BR10004",
+        "BR10015",
+        "BR10012",
+        "BR10014",
+        "BR10013",
+        "BR10100",
+        "BR10120",
+        "BR10135",
+        "BR10146",
+        "BR10155",
+        "BR10157",
+        "BR10240",
+        "BR10200",
+        "BR10230",
+        "BR10308",
+        "BR10309",
+        "BR10315",
+        "BR10302",
+        "BR10319",
+        "BR11502",
+        "BR11508",
+        "BR11510",
+        "BR11507",
+        "BR10480",
+        "BR11501",
+        "BR11503",
+        "BR11530",
+        "BR11554",
+        "BR11540"
+    ],
+    "DenClsCst": [
+        "Despesas de Fretado",
+        "Higienização Uniform",
+        "Despesa com limpeza",
+        "MO Temp Sazonal",
+        "MO Temp Op-Fab Galp",
+        "Serviços Terceiros",
+        "Aluguel Equip Cópias",
+        "MOT Adm FábGalpEsc",
+        "Serv de postagem"
+    ],
+    "Classe_Custo": [
+        "6200103",
+        "6100020",
+        "6600026",
+        "6000014",
+        "6600005",
+        "6600022",
+        "6600078",
+        "6600021",
+        "6600066"
+    ],
+    "Janeiro": ["jan", "janeiro", "mês 1", "01"],
+    "Fevereiro": ["fev", "fevereiro", "mês 2", "02"],
+    "Março": ["mar", "março", "marco", "mês 3", "03"],
+    "Abril": ["abr", "abril", "mês 4", "04"],
+    "Maio": ["mai", "maio", "mês 5", "05"],
+    "Junho": ["jun", "junho", "mês 6", "06"],
+    "Julho": ["jul", "julho", "mês 7", "07"],
+    "Agosto": ["ago", "agosto", "mês 8", "08"],
+    "Setembro": ["set", "setembro", "mês 9", "09"],
+    "Outubro": ["out", "outubro", "mês 10", "10"],
+    "Novembro": ["nov", "novembro", "mês 11", "11"],
+    "Dezembro": ["dez", "dezembro", "mês 12", "12"],
+    "YTD": ["ytd", "year to date", "acumulado", "acumulado ano", "realizado"],
+    "BOY": ["boy", "balance of year", "resto do ano", "projeção", "projetado"],
+    "FY": ["fy", "full year", "ano completo", "ano total", "total ano"]
+}
