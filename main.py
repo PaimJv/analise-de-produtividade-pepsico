@@ -1,5 +1,6 @@
 from utils import LABELS_MAP
 import streamlit as st
+import planejamento_logic
 from logic import init_state, load_and_process_base, voltar_nivel, apply_color_logic, get_highlights_summary
 from sidebar import render_initial_sidebar, render_advanced_filters
 from components import render_dynamic_table
@@ -63,34 +64,37 @@ if pode_processar:
 
     # --- 4. PROCESSAMENTO OTIMIZADO ---
     if st.session_state.df_raw is None:
-        with st.spinner("🚀 Analisando base de dados..."):
-            # A função load_and_process_base já recebe uma lista, 
-            # então ela funciona tanto com 1 quanto com 2 arquivos.
-            res, at, ant, aviso = load_and_process_base(uploaded_files)
-            
-            # ... (Restante da lógica de salvamento no session_state permanece igual)
-
-    # --- 4. PROCESSAMENTO OTIMIZADO ---
-    if st.session_state.df_raw is None:
         with st.spinner("Otimizando base de dados..."):
-            res, at, ant, aviso = load_and_process_base(uploaded_files)
+            modo_planilha = st.session_state.get('modo_planilha', 'Planilha do SAP')
             
+            # BIFURCAÇÃO DA LEITURA DE DADOS
+            if modo_planilha == "Planilha com todas as contas":
+                # ROTA 1: Novo motor de planejamento
+                res = planejamento_logic.process_all_accounts_format(uploaded_files)
+                if isinstance(res, pd.DataFrame):
+                    # No novo modo, as dimensões padrão incluem o 'Pacote'
+                    dims_desejadas = ['Desc_Conta', 'P_L', 'VP', 'Localidade', 'Centro_Custo', 'Desc_Material', 'Pacote']
+                    dims_validas = ['Desc_Conta', 'P_L', 'VP', 'Localidade', 'Centro_Custo', 'Desc_Material', 'Pacote']
+                    at, ant, aviso = 2026, 2025, None # Fake values para não quebrar a UI
+            else:
+                # ROTA 2: Motor original do SAP
+                res, at, ant, aviso = load_and_process_base(uploaded_files)
+                if isinstance(res, pd.DataFrame):
+                    from logic import obter_dimensoes_validas
+                    dims_validas = obter_dimensoes_validas(res, at, ant)
+
+            # SALVAMENTO NA SESSÃO (Igual para ambos)
             if isinstance(res, pd.DataFrame):
-                # 1. Detectamos as dimensões válidas
-                from logic import obter_dimensoes_validas
-                dims_validas = obter_dimensoes_validas(res, at, ant)
-                
-                # 2. Salvamos TUDO na sessão
                 st.session_state.df_raw = res
                 st.session_state.ano_at = at
                 st.session_state.ano_ant = ant
-                st.session_state.dims_com_paridade = dims_validas # SALVANDO AQUI
+                st.session_state.dims_com_paridade = dims_validas
                 st.session_state.aviso_incompleto = aviso
                 gc.collect()
             else:
                 st.error(f"Erro no processamento: {res}")
                 st.stop()
-
+    
     # Atalhos (Garante que as variáveis existam para a sidebar)
     df_raw = st.session_state.df_raw
     ano_at = st.session_state.ano_at
@@ -107,8 +111,13 @@ if pode_processar:
     )
 
     # --- 6. LÓGICA DE FILTRAGEM ---
-    meses_filtro = selecao_meses if selecao_meses else sorted(df_raw['Mes'].unique())
-    df_filtrado = df_raw[df_raw['Mes'].isin(meses_filtro)]
+    df_filtrado = df_raw.copy()
+    meses_filtro = selecao_meses
+    
+    # Só aplica o filtro de meses se a coluna existir (Modo SAP)
+    if 'Mes' in df_filtrado.columns:
+        meses_filtro = selecao_meses if selecao_meses else sorted(df_filtrado['Mes'].unique())
+        df_filtrado = df_filtrado[df_filtrado['Mes'].isin(meses_filtro)]
     
     if filtros_dinamicos:
         for col, valores in filtros_dinamicos.items():
@@ -121,102 +130,122 @@ if pode_processar:
         if col in df_active.columns:
             df_active = df_active[df_active[col].astype(str) == str(val)]
 
-    if st.session_state.aviso_incompleto:
-            a = st.session_state.aviso_incompleto
-            st.warning(f"⚠️ **Atenção:** O mês de **{a['mes_nome']}** está incompleto no relatório (registros apenas até o dia **{a['dia']}**).")
-                
-    # --- 6.1 RESUMO DE DESTAQUES (OPORTUNIDADES) ---
-    resumo_opps = get_highlights_summary(df_filtrado, ano_at, ano_ant)
-    
-    if resumo_opps:
-        with st.expander("💡 **Destaques de Produtividade YoY**", expanded=True):
-            st.markdown("Principais oportunidades de redução:")
-            for item in resumo_opps:
-                st.write(item)
-    else:
-        st.info("Nenhuma oportunidade de produtividade acima de R$ 1.000,00 identificada no período selecionado.")
+    # ==========================================================
+    # BIFURCAÇÃO MESTRE DAS TELAS (SAP vs PLANEJAMENTO)
+    # ==========================================================
+    modo_planilha = st.session_state.get('modo_planilha', 'Planilha do SAP')
 
-    path_txt = " > ".join([str(v) for c, v in st.session_state.drill_path]) if st.session_state.drill_path else "Corporativo"
-    # st.info(f"📍 **Localização:** `Início > {path_txt}`")
-
-    # --- 8. HIERARQUIA DE NAVEGAÇÃO ---
-    hierarquia = ['Desc_Conta', 'P_L', 'VP', 'Localidade', 'Centro_Custo', 'Desc_Material']
-    labels = {
-        'Desc_Conta': 'Conta (Classe de Custo)', 
-        'P_L': 'P&L', 
-        'VP': 'VP', 
-        'Localidade': 'Localidade', 
-        'Centro_Custo': 'Centro de Custo', 
-        'Desc_Material': 'Material'
-    }
-    
-    nivel = len(st.session_state.drill_path)
-
-    if nivel < len(hierarquia):
-        atual_col = hierarquia[nivel]
-        # label_atual = labels.get(atual_col, atual_col)
-        label_atual = LABELS_MAP.get(atual_col, atual_col)
-
-        # Cabeçalho e Botão Voltar
+    if modo_planilha == "Planilha com todas as contas":
+        
+        # ------------------------------------------------------
+        # TELA 1: MODO PLANEJAMENTO (NOVO)
+        # ------------------------------------------------------
         st.markdown("---")
-        c1, c2 = st.columns([4, 1])
-        with c1:
-            st.subheader(f"Tabela mensal: {label_atual}")
-        with c2:
-            if nivel > 0:
-                st.write("##")
-                if st.button("⬅️ Voltar Nível", use_container_width=True, key="btn_back_main"):
-                    voltar_nivel()
-                    st.rerun()
-
-        # Matriz de Variação
-        df_pivot = render_dynamic_table(df_active, atual_col, ano_at, ano_ant)
-        cols_meses = [c for c in df_pivot.columns if c != 'Total Geral']
-
-        cols_para_estilizar = cols_meses + ['Total Geral']
-
-        # Exibição da Tabela
-        event = st.dataframe(
-            df_pivot.style.format(precision=2, decimal=',', thousands='.')
-            .map(apply_color_logic, subset=cols_para_estilizar),
-            use_container_width=True,
-            on_select="rerun",
-            selection_mode="single-row",
-            key=f"tab_drill_{nivel}"
-        )
-
-        # Lógica de Clique (Drill-down)
-        if event and "selection" in event and event["selection"]["rows"]:
-            idx = event["selection"]["rows"][0]
-            val_selecionado = df_pivot.index[idx]
-            if val_selecionado != "Total Geral":
-                st.session_state.drill_path.append((atual_col, val_selecionado))
-                st.rerun()
-
-        st.markdown("---")
-        st.subheader("Resultados encontrados")
-
+        st.subheader("Resultados encontrados (Planejamento)")
+        
         if not dimensoes_ia:
             st.warning("Selecione as dimensões na barra lateral para o relatório detalhado.")
         else:
-            from logic import render_report_ui, prepare_report_data            
-            
-            # Criamos uma string única da seleção atual (ex: "1-2" para Jan e Fev)
-            filtro_id = "-".join(map(str, sorted(meses_filtro)))
-            
-            # O st.empty() garante que o espaço possa ser limpo
-            placeholder = st.empty()
-            
-            with placeholder.container(): # <--- ADICIONE ESTA LINHA
-                with st.spinner("Gerando auditoria detalhada..."):
-                    df_master, dims_analise = prepare_report_data(df_filtrado, dimensoes_ia, ano_at, ano_ant)
-                    render_report_ui(df_master, dims_analise, ano_at, ano_ant, foco_res, selecao_meses=meses_filtro)
-        
+            with st.spinner("Gerando visão estruturada..."):
+                planejamento_logic.render_planejamento_ui(df_filtrado, dimensoes_ia)
+
     else:
-        # Nível Final (Material)
-        st.success("🎯 Detalhe máximo atingido (Análise por Material).")
-        if st.button("⬅️ Voltar ao Início", use_container_width=True):
-            st.session_state.drill_path = []
-            st.rerun()
+        
+        # ------------------------------------------------------
+        # TELA 2: MODO SAP ORIGINAL (INTOCADO)
+        # ------------------------------------------------------
+        if st.session_state.aviso_incompleto:
+            a = st.session_state.aviso_incompleto
+            st.warning(f"⚠️ **Atenção:** O mês de **{a['mes_nome']}** está incompleto no relatório (registros apenas até o dia **{a['dia']}**).")
+                
+        # --- 6.1 RESUMO DE DESTAQUES (OPORTUNIDADES) ---
+        resumo_opps = get_highlights_summary(df_filtrado, ano_at, ano_ant)
+        
+        if resumo_opps:
+            with st.expander("💡 **Destaques de Produtividade YoY**", expanded=True):
+                st.markdown("Principais oportunidades de redução:")
+                for item in resumo_opps:
+                    st.write(item)
+        else:
+            st.info("Nenhuma oportunidade de produtividade acima de R$ 1.000,00 identificada no período selecionado.")
+
+        path_txt = " > ".join([str(v) for c, v in st.session_state.drill_path]) if st.session_state.drill_path else "Corporativo"
+        # st.info(f"📍 **Localização:** `Início > {path_txt}`")
+
+        # --- 8. HIERARQUIA DE NAVEGAÇÃO ---
+        hierarquia = ['Desc_Conta', 'P_L', 'VP', 'Localidade', 'Centro_Custo', 'Desc_Material']
+        labels = {
+            'Desc_Conta': 'Conta (Classe de Custo)', 
+            'P_L': 'P&L', 
+            'VP': 'VP', 
+            'Localidade': 'Localidade', 
+            'Centro_Custo': 'Centro de Custo', 
+            'Desc_Material': 'Material'
+        }
+        
+        nivel = len(st.session_state.drill_path)
+
+        if nivel < len(hierarquia):
+            atual_col = hierarquia[nivel]
+            label_atual = LABELS_MAP.get(atual_col, atual_col)
+
+            # Cabeçalho e Botão Voltar
+            st.markdown("---")
+            c1, c2 = st.columns([4, 1])
+            with c1:
+                st.subheader(f"Tabela mensal: {label_atual}")
+            with c2:
+                if nivel > 0:
+                    st.write("##")
+                    if st.button("⬅️ Voltar Nível", use_container_width=True, key="btn_back_main"):
+                        voltar_nivel()
+                        st.rerun()
+
+            # Matriz de Variação
+            df_pivot = render_dynamic_table(df_active, atual_col, ano_at, ano_ant)
+            cols_meses = [c for c in df_pivot.columns if c != 'Total Geral']
+
+            cols_para_estilizar = cols_meses + ['Total Geral']
+
+            # Exibição da Tabela
+            event = st.dataframe(
+                df_pivot.style.format(precision=2, decimal=',', thousands='.')
+                .map(apply_color_logic, subset=cols_para_estilizar),
+                use_container_width=True,
+                on_select="rerun",
+                selection_mode="single-row",
+                key=f"tab_drill_{nivel}"
+            )
+
+            # Lógica de Clique (Drill-down)
+            if event and "selection" in event and event["selection"]["rows"]:
+                idx = event["selection"]["rows"][0]
+                val_selecionado = df_pivot.index[idx]
+                if val_selecionado != "Total Geral":
+                    st.session_state.drill_path.append((atual_col, val_selecionado))
+                    st.rerun()
+
+            st.markdown("---")
+            st.subheader("Resultados encontrados")
+
+            if not dimensoes_ia:
+                st.warning("Selecione as dimensões na barra lateral para o relatório detalhado.")
+            else:
+                filtro_id = "-".join(map(str, sorted(meses_filtro)))
+                placeholder = st.empty()
+                
+                with placeholder.container(): 
+                    with st.spinner("Gerando auditoria detalhada..."):
+                        from logic import render_report_ui, prepare_report_data            
+                        df_master, dims_analise = prepare_report_data(df_filtrado, dimensoes_ia, ano_at, ano_ant)
+                        render_report_ui(df_master, dims_analise, ano_at, ano_ant, foco_res, selecao_meses=meses_filtro)
+        
+        else:
+            # Nível Final (Material)
+            st.success("🎯 Detalhe máximo atingido (Análise por Material).")
+            if st.button("⬅️ Voltar ao Início", use_container_width=True):
+                st.session_state.drill_path = []
+                st.rerun()
+
 else:
     st.info("👋 Para começar, carregue os arquivos de dois anos diferentes na barra lateral.")

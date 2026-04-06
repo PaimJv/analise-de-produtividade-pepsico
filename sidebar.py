@@ -2,12 +2,23 @@ import streamlit as st
 import pandas as pd
 from logic import reset_navigation
 from utils import LABELS_MAP
-
+ 
 def render_initial_sidebar():
     """
     Renderiza os controlos básicos na barra lateral antes do processamento.
     Configura o modo de comparação e o carregamento de ficheiros.
     """
+    st.sidebar.title("Configurações")
+    
+    modo_planilha = st.sidebar.radio(
+        "Selecione o formato da base:",
+        ["Planilha do SAP (Transacional)", "Planilha com todas as contas"],
+        help="Altera o motor de cálculo para ler arquivos de projeção (PXXF/AOP)."
+    )
+    st.session_state.modo_planilha = modo_planilha
+    
+    st.sidebar.divider()
+    
     st.sidebar.title("Seleção de conteúdos")
     
     modo_envio = st.sidebar.radio(
