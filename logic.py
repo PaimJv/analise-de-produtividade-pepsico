@@ -96,6 +96,17 @@ def get_highlights_summary(df, ano_at, ano_ant):
         
     return summary
 
+@st.cache_data(show_spinner=False)
+def carregar_bases_apoio():
+    """Carrega os arquivos Parquet em memória cache ultrarrápida (Lê apenas 1 vez)."""
+    try:
+        df_contas = pd.read_parquet("dim_contas.parquet")
+        df_cc = pd.read_parquet("dim_centros_custo.parquet")
+        return df_contas, df_cc
+    except Exception as e:
+        st.warning("⚠️ Bases de apoio (.parquet) não encontradas. Verifique se os arquivos estão na pasta.")
+        return None, None
+
 @st.cache_data(show_spinner="Otimizando base de dados...")
 def load_and_process_base(files):
     dfs = []
@@ -147,7 +158,7 @@ def load_and_process_base(files):
             map_limpo = {k.strip().lower(): v for k, v in mapeamento.items()}
             
             tradução_final = {}
-            colunas_sistema_obrigatorias = ['VP', 'Localidade', 'Centro_Custo', 'P_L', 'Valor', 'Data_Lancamento']
+            colunas_sistema_obrigatorias = ['Classe_Custo', 'Centro_Custo', 'Valor', 'Data_Lancamento']
             
             # A) BUSCA POR NOME (Dicionário Utils)
             for k_limpo, v_sistema in map_limpo.items():
@@ -216,26 +227,23 @@ def load_and_process_base(files):
 
             df_temp.rename(columns=tradução_final, inplace=True)
 
-            # 5. FEATURE ENGINEERING (Ano, Mes, Desc_Conta)
+            # 5. LIMPEZA INICIAL
             if 'Data_Lancamento' in df_temp.columns:
                 df_temp['Data_Lancamento'] = pd.to_datetime(df_temp['Data_Lancamento'], dayfirst=True, errors='coerce')
                 df_temp = df_temp.dropna(subset=['Data_Lancamento'])
                 df_temp['Ano'] = df_temp['Data_Lancamento'].dt.year.astype(int)
                 df_temp['Mes'] = df_temp['Data_Lancamento'].dt.month.astype(int)
 
-            den = df_temp['DenClsCst'].fillna("Sem Descrição").astype(str) if 'DenClsCst' in df_temp.columns else "Sem Descrição"
-            cod = df_temp['Classe_Custo'].fillna("000000").astype(str) if 'Classe_Custo' in df_temp.columns else "000000"
-            df_temp['Desc_Conta'] = den + " - " + cod
-
-            # 6. OTIMIZAÇÃO DE MEMÓRIA E TIPAGEM
             if 'Valor' in df_temp.columns:
                 if df_temp['Valor'].dtype == object:
                     df_temp['Valor'] = df_temp['Valor'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
                 df_temp['Valor'] = pd.to_numeric(df_temp['Valor'], errors='coerce').fillna(0).astype('float32')
-
-            for col in ['Desc_Conta', 'Centro_Custo', 'VP', 'Localidade', 'P_L']:
-                if col in df_temp.columns:
-                    df_temp[col] = df_temp[col].fillna("Não Informado").astype('category')
+                
+            # Padroniza as chaves para que o "PROCV" encaixe perfeitamente
+            if 'Classe_Custo' in df_temp.columns:
+                df_temp['Classe_Custo'] = df_temp['Classe_Custo'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+            if 'Centro_Custo' in df_temp.columns:
+                df_temp['Centro_Custo'] = df_temp['Centro_Custo'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
 
             dfs.append(df_temp)
             gc.collect()
@@ -244,8 +252,73 @@ def load_and_process_base(files):
             return f"Erro no arquivo {f.name}: {str(e)}", None, None, None
     
     if not dfs: return "Nenhum dado processado.", None, None, None
-    full_df = pd.concat(dfs, ignore_index=True)
-    return get_yoy_data(full_df)
+    
+    # Junta os arquivos transacionais mensais
+    df = pd.concat(dfs, ignore_index=True)
+
+    # 🚀 PREPARAÇÃO DO ESQUEMA ESTRELA (Isola apenas Fatos e Chaves)
+    # Exclui colunas de texto, MAS mantém a 'Desc_Material' que é nativa da transação
+    colunas_fatos = ['Classe_Custo', 'Centro_Custo', 'Desc_Material', 'Data_Lancamento', 'Valor', 'Ano', 'Mes']
+    colunas_presentes = [c for c in colunas_fatos if c in df.columns]
+    df = df[colunas_presentes]
+
+    # =========================================================
+    # 🚀 O PROCV (MERGE) COM O STAR SCHEMA DOS PARQUETS
+    # =========================================================
+    df_contas, df_cc = carregar_bases_apoio()
+    
+    if df_contas is not None and df_cc is not None:
+        # 1. Limpeza extrema de caracteres invisíveis nas chaves
+        df_contas['Conta'] = df_contas['Conta'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+        df_cc['CC'] = df_cc['CC'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+        df['Classe_Custo'] = df['Classe_Custo'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+        df['Centro_Custo'] = df['Centro_Custo'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+        
+        # 🛡️ TRAVA ABSOLUTA CONTRA MULTIPLICAÇÃO DE VALORES
+        df_contas = df_contas.groupby('Conta', as_index=False).first()
+        df_cc = df_cc.groupby('CC', as_index=False).first()
+        
+        # CRUZAMENTO 1 e 2
+        df = df.merge(df_contas[['Conta', 'Desc Conta', 'Pacote', 'P&L']], 
+                      left_on='Classe_Custo', right_on='Conta', how='left', validate='m:1')
+        
+        df = df.merge(df_cc[['CC', 'Descricao CC', 'VP', 'Diretoria', 'Local', 'Localidade', 'Empresa', 'Responsável']], 
+                      left_on='Centro_Custo', right_on='CC', how='left', validate='m:1')
+        
+        # =========================================================
+        # RECONSTRUÇÃO DOS NOMES PARA A INTERFACE UI
+        # =========================================================
+        df['Desc_Conta'] = df['Desc Conta'].astype(object).fillna("Sem Descrição") + " - " + df['Classe_Custo'].astype(object).fillna("000000")
+        df['P_L'] = df['Responsável'].astype(object).fillna("Não Informado") 
+        df['VP'] = df['VP'].astype(object).fillna("Não Informado")
+        df['Localidade'] = df['Localidade'].astype(object).fillna("Não Informado")
+        df['Pacote'] = df['Pacote'].astype(object).fillna("Não Informado")
+        df['Diretoria'] = df['Diretoria'].astype(object).fillna("Não Informado")
+        
+        df['Centro_Custo'] = df['Descricao CC'].astype(object).fillna("Sem Descrição") + " (" + df['Centro_Custo'].astype(object).fillna("000") + ")"
+        
+    else:
+        # Fallback
+        df['Desc_Conta'] = df.get('Classe_Custo', '0000')
+        df['P_L'] = df.get('P_L', "Não Informado")
+        df['VP'] = df.get('VP', "Não Informado")
+        df['Localidade'] = df.get('Localidade', "Não Informado")
+
+    # Tratamento de segurança para o Material (Caso algum arquivo SAP venha sem ele)
+    if 'Desc_Material' not in df.columns:
+        df['Desc_Material'] = "Não Informado"
+    df['Desc_Material'] = df['Desc_Material'].astype(object).fillna("Não Informado")
+
+    # =========================================================
+    # 🚀 COMPRESSÃO FINAL DE MEMÓRIA (Categorias)
+    # =========================================================
+    # Adicionamos 'Desc_Material' na compressão para economizar RAM
+    colunas_texto = ['Desc_Conta', 'P_L', 'VP', 'Localidade', 'Centro_Custo', 'Pacote', 'Diretoria', 'Desc_Material']
+    for col in colunas_texto:
+        if col in df.columns:
+            df[col] = df[col].astype('category')
+
+    return get_yoy_data(df)
 
 # Manter as funções voltar_nivel, apply_color_logic, etc., sem alterações.
 
