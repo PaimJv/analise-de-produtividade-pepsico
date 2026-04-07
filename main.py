@@ -110,6 +110,11 @@ if pode_processar:
         ano_ant
     )
 
+    # --- 🛑 TRAVA DO BOTÃO (AGUARDANDO GERAÇÃO) ---
+    if selecao_meses == "AGUARDANDO":
+        st.info("👋 Ajuste os parâmetros na barra lateral e clique em **🚀 Gerar / Atualizar Relatório** para iniciar a análise.")
+        st.stop() # Interrompe a execução da tela principal aqui até o botão ser clicado
+
     # --- 6. LÓGICA DE FILTRAGEM ---
     df_filtrado = df_raw.copy()
     meses_filtro = selecao_meses

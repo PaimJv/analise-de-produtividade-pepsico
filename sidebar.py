@@ -21,12 +21,16 @@ def render_initial_sidebar():
     
     st.sidebar.title("Seleção de conteúdos")
     
-    modo_envio = st.sidebar.radio(
-        "Modo de Envio:",
-        ["Arquivos Separados (YoY)", "Arquivo Único (Biênio/Histórico)"],
-        index=0,
-        key="modo_envio"
-    )
+    if modo_planilha == "Planilha com todas as contas":
+        modo_envio = "Arquivo Único (Biênio/Histórico)"
+        st.sidebar.info("📌 Modo de arquivo único ativado por padrão para o Planejamento.")
+    else:
+        modo_envio = st.sidebar.radio(
+            "Modo de Envio:",
+            ["Arquivos Separados (YoY)", "Arquivo Único (Biênio/Histórico)"],
+            index=0,
+            key="modo_envio"
+        )
     
     st.sidebar.markdown("---")
     
@@ -50,40 +54,41 @@ def render_initial_sidebar():
 def render_advanced_filters(df_raw, dimensoes_validas, ano_at, ano_ant):
     st.sidebar.markdown("---")
     
-    if 'Mes' in df_raw.columns:
-        meses_lista = sorted(df_raw['Mes'].unique())
-        
-        mes_max_data = df_raw[df_raw['Ano'] == ano_at]['Mes'].max()
-        
-        meses_completos = [m for m in meses_lista if m < mes_max_data]
-        
-        if not meses_completos:
-            meses_completos = meses_lista
-        
+    # Resgata o modo selecionado na tela anterior
+    modo_planilha = st.session_state.get('modo_planilha', 'Planilha do SAP')
+    
+    # --- 1. TRATAMENTO: Ocultar Material no modo Planejamento ---
+    if modo_planilha == "Planilha com todas as contas":
+        dimensoes_validas = [d for d in dimensoes_validas if d != 'Desc_Material']
+    
+    # --- 2. TRATAMENTO: Ocultar Filtro de Mês e Erro no modo Planejamento ---
+    if modo_planilha == "Planilha com todas as contas":
+        selecao_meses = [] # Ignora filtros de meses sem quebrar a tela
     else:
-        st.sidebar.error("❌ Coluna 'Mes' não encontrada.")
-        meses_lista = []
-        meses_completos = []
-    
-    meses_br = {1:'Jan', 2:'Fev', 3:'Mar', 4:'Abr', 5:'Mai', 6:'Jun',
-                7:'Jul', 8:'Ago', 9:'Set', 10:'Out', 11:'Nov', 12:'Dez'}
-    
-    # # 1. Filtro de Meses
-    # meses_lista = sorted(df_raw['Mes'].unique())
-    # meses_br = {1:'Jan', 2:'Fev', 3:'Mar', 4:'Abr', 5:'Mai', 6:'Jun',
-    #             7:'Jul', 8:'Ago', 9:'Set', 10:'Out', 11:'Nov', 12:'Dez'}
-    
-    selecao_meses = st.sidebar.multiselect(
-        "2. Período (Meses):", 
-        options=meses_lista, 
-        default=meses_completos,
-        format_func=lambda x: meses_br.get(x, x),
-        key="ms_meses",
-        on_change=reset_navigation
-    )
+        if 'Mes' in df_raw.columns:
+            meses_lista = sorted(df_raw['Mes'].unique())
+            mes_max_data = df_raw[df_raw['Ano'] == ano_at]['Mes'].max()
+            meses_completos = [m for m in meses_lista if m < mes_max_data]
+            if not meses_completos:
+                meses_completos = meses_lista
+        else:
+            st.sidebar.error("❌ Coluna 'Mes' não encontrada.")
+            meses_lista = []
+            meses_completos = []
+        
+        meses_br = {1:'Jan', 2:'Fev', 3:'Mar', 4:'Abr', 5:'Mai', 6:'Jun',
+                    7:'Jul', 8:'Ago', 9:'Set', 10:'Out', 11:'Nov', 12:'Dez'}
+        
+        selecao_meses = st.sidebar.multiselect(
+            "2. Período (Meses):", 
+            options=meses_lista, 
+            default=meses_completos,
+            format_func=lambda x: meses_br.get(x, x),
+            key="ms_meses",
+            # on_change=reset_navigation
+        )
 
     # 2. Dimensões para a IA
-    # opcoes_hierarquia = ['Desc_Conta', 'P_L', 'VP', 'Localidade', 'Centro_Custo', 'Desc_Material']
     opcoes_hierarquia = dimensoes_validas
     dimensoes_ia = st.sidebar.multiselect(
         "3. Colunas a serem analisadas:",
@@ -91,7 +96,7 @@ def render_advanced_filters(df_raw, dimensoes_validas, ano_at, ano_ant):
         default=dimensoes_validas,
         format_func=lambda x: LABELS_MAP.get(x, x),
         key="ms_dimensoes",
-        on_change=reset_navigation
+        # on_change=reset_navigation
     )
 
     # 3. Foco da Análise
@@ -99,7 +104,7 @@ def render_advanced_filters(df_raw, dimensoes_validas, ano_at, ano_ant):
         "4. Foco da Análise:",
         ["Apenas Savings (Eficiência)", "Apenas Desvios (Gastos)", "Análise 360° (Ambos)"],
         key="radio_foco_ia",
-        on_change=reset_navigation
+        # on_change=reset_navigation
     )
 
     filtros_selecionados = {}
@@ -147,10 +152,30 @@ def render_advanced_filters(df_raw, dimensoes_validas, ano_at, ano_ant):
                 options=opcoes_finais,
                 key=f"dyn_filter_{dim}",
                 help=f"Selecione os filtros para especificar os resultados.",
-                on_change=reset_navigation
+                # on_change=reset_navigation
             )
             filtros_selecionados[dim] = escolha
 
     st.sidebar.markdown("---")
 
-    return selecao_meses, dimensoes_ia, foco_resultado, filtros_selecionados
+    st.sidebar.markdown("---")
+
+    # BOTÃO PARA GERAR/ATUALIZAR O RELATÓRIO
+    if st.sidebar.button("🚀 Gerar / Atualizar Relatório", type="primary", use_container_width=True):
+        st.session_state.relatorio_liberado = True
+        # Tira uma "foto" dos filtros no exato momento do clique
+        st.session_state.filtros_snapshot = {
+            'selecao_meses': selecao_meses,
+            'dimensoes_ia': dimensoes_ia,
+            'foco_resultado': foco_resultado,
+            'filtros_selecionados': filtros_selecionados
+        }
+        reset_navigation() # Reseta a tela (drill-down) só ao gerar um novo relatório
+
+    # Se o relatório já foi gerado antes, retorna a "foto" salva (ignorando o que está sendo mexido ao vivo na sidebar)
+    if st.session_state.get('relatorio_liberado', False) and 'filtros_snapshot' in st.session_state:
+        snap = st.session_state.filtros_snapshot
+        return snap['selecao_meses'], snap['dimensoes_ia'], snap['foco_resultado'], snap['filtros_selecionados']
+    
+    # Se o usuário acabou de subir o arquivo e ainda não clicou no botão:
+    return "AGUARDANDO", [], None, {}
