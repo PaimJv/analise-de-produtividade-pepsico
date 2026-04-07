@@ -116,7 +116,7 @@ if pode_processar:
         st.stop() # Interrompe a execução da tela principal aqui até o botão ser clicado
 
     # --- 6. LÓGICA DE FILTRAGEM ---
-    df_filtrado = df_raw.copy()
+    df_filtrado = df_raw # 🚀 REMOVIDO O .copy()
     meses_filtro = selecao_meses
     
     # Só aplica o filtro de meses se a coluna existir (Modo SAP)
@@ -130,7 +130,7 @@ if pode_processar:
                 df_filtrado = df_filtrado[df_filtrado[col].astype(str).isin(valores)]
     
     # --- 7. DRILL-DOWN ---
-    df_active = df_filtrado.copy()
+    df_active = df_filtrado # 🚀 REMOVIDO O .copy()
     for col, val in st.session_state.drill_path:
         if col in df_active.columns:
             df_active = df_active[df_active[col].astype(str) == str(val)]
@@ -194,41 +194,20 @@ if pode_processar:
             atual_col = hierarquia[nivel]
             label_atual = LABELS_MAP.get(atual_col, atual_col)
 
-            # Cabeçalho e Botão Voltar
+            # Matriz de Variação (Processamento Matemático)
             st.markdown("---")
-            c1, c2 = st.columns([4, 1])
-            with c1:
-                st.subheader(f"Tabela mensal: {label_atual}")
-            with c2:
-                if nivel > 0:
-                    st.write("##")
-                    if st.button("⬅️ Voltar Nível", use_container_width=True, key="btn_back_main"):
-                        voltar_nivel()
-                        st.rerun()
-
-            # Matriz de Variação
+            st.subheader(f"Resumo Mensal: {label_atual}")
+            
             df_pivot = render_dynamic_table(df_active, atual_col, ano_at, ano_ant)
             cols_meses = [c for c in df_pivot.columns if c != 'Total Geral']
-
             cols_para_estilizar = cols_meses + ['Total Geral']
 
-            # Exibição da Tabela
-            event = st.dataframe(
+            # Exibição da Tabela Nativa (Sem a função de clique/seleção para manter a performance)
+            st.dataframe(
                 df_pivot.style.format(precision=2, decimal=',', thousands='.')
                 .map(apply_color_logic, subset=cols_para_estilizar),
-                use_container_width=True,
-                on_select="rerun",
-                selection_mode="single-row",
-                key=f"tab_drill_{nivel}"
+                use_container_width=True
             )
-
-            # Lógica de Clique (Drill-down)
-            if event and "selection" in event and event["selection"]["rows"]:
-                idx = event["selection"]["rows"][0]
-                val_selecionado = df_pivot.index[idx]
-                if val_selecionado != "Total Geral":
-                    st.session_state.drill_path.append((atual_col, val_selecionado))
-                    st.rerun()
 
             st.markdown("---")
             st.subheader("Resultados encontrados")
@@ -254,3 +233,6 @@ if pode_processar:
 
 else:
     st.info("👋 Para começar, carregue os arquivos de dois anos diferentes na barra lateral.")
+    
+import gc
+gc.collect()

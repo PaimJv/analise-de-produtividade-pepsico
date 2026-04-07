@@ -31,7 +31,7 @@ def process_all_accounts_format(files):
                     continue
             
             f.seek(0)
-            df_bruto = pd.read_csv(f, sep=';', encoding=enc_final, engine='python', header=None)
+            df_bruto = pd.read_csv(f, sep=';', encoding=enc_final, engine='c', header=None)
         else:
             df_bruto = pd.read_excel(f, header=None)
             
@@ -165,7 +165,27 @@ def process_all_accounts_format(files):
             
         dfs.append(df)  
         
-    return pd.concat(dfs, ignore_index=True)
+    # Junta tudo em uma base final
+    df_final = pd.concat(dfs, ignore_index=True)
+    
+    # =========================================================
+    # 🚀 OTIMIZAÇÃO EXTREMA DE MEMÓRIA (COMPRESSÃO DE DADOS)
+    # =========================================================
+    # 1. Converte textos repetitivos em categorias (Reduz 80% da RAM)
+    colunas_texto = ['Centro_Custo', 'DenClsCst', 'Classe_Custo', 'DenConta', 
+                     'Pacote', 'Tipo_Dado', 'Localidade', 'VP', 'P_L', 
+                     'Desc_Conta', 'Desc_Material']
+    
+    for col in colunas_texto:
+        if col in df_final.columns:
+            df_final[col] = df_final[col].astype('category')
+            
+    # 2. Converte números gigantes (float64) para números leves (float32)
+    for col in meses_cols + agregadores_cols + ['Valor_YTD', 'Valor_BOY', 'Valor_FY']:
+        if col in df_final.columns:
+            df_final[col] = pd.to_numeric(df_final[col], downcast='float')
+            
+    return df_final
 
 def format_brl(val):
     """Formatação monetária."""
@@ -176,79 +196,59 @@ def format_brl(val):
     return f"{prefix}{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 def render_planejamento_ui(df_nivel, dims, profundidade=0, filtro_contexto=None):
-    """Interface recursiva focada na comparação YTD / BOY / FY (Alta Performance)"""
+    """Função Wrapper com Animação de Carregamento em Tempo Real"""
+    foco_analise = st.session_state.get('radio_foco_ia', 'Análise 360° (Ambos)')
+    
+    # 1. Cria os espaços reservados para a Animação na tela
+    aviso_texto = st.empty()
+    barra_progresso = st.progress(0)
+    
+    with st.spinner("Iniciando motor de renderização estrutural..."):
+        # 2. Passa os componentes de animação para o motor rodar
+        html_final = _gerar_html_recursivo(df_nivel, dims, 0, {}, foco_analise, aviso_texto, barra_progresso)
+        
+    # 3. Limpa a barra de progresso da tela quando o trabalho terminar
+    aviso_texto.empty()
+    barra_progresso.empty()
+    
+    if html_final.strip() == "":
+        st.info(f"Nenhum registro encontrado com o critério: **{foco_analise}**")
+    else:
+        # Mensagem de sucesso rápida antes da tabela HTML
+        st.success("✅ Relatório renderizado com sucesso!")
+        st.markdown(f"<div style='padding-bottom: 50px;'>{html_final}</div>", unsafe_allow_html=True)
+
+
+def _gerar_html_recursivo(df_nivel, dims, profundidade, filtro_contexto, foco_analise, text_ui=None, progress_ui=None):
+    """Motor de geração de HTML/CSS com callback de progresso. (Seguro contra CodeBlocks do Markdown)"""
     if not dims or profundidade >= len(dims):
-        return
+        return ""
 
     col = dims[profundidade]
     
-    # Filtra o contexto atual para este nível da recursão
     if filtro_contexto:
         for c, v in filtro_contexto.items():
             df_nivel = df_nivel[df_nivel[c] == v]
 
     itens = sorted(df_nivel[col].dropna().unique().astype(str).tolist())
-    foco_analise = st.session_state.get('radio_foco_ia', 'Análise 360° (Ambos)')
-    itens_exibidos = 0
+    total_itens = len(itens)
+    html_completo = ""
 
-    # =======================================================
-    # 🚀 OTIMIZAÇÃO 1: FUNÇÕES NA MEMÓRIA GLOBAL (Fora do laço)
-    # =======================================================
-    def config_delta(var):
-        if round(var, 2) > 0:
-            val_str = f"{var:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            return f"+ R$ {val_str} (Variação)", "inverse"
-        elif round(var, 2) < 0:
-            val_str = f"{abs(var):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            return f"- R$ {val_str} (Variação)", "inverse"
-        else:
-            return "0", "off"
-
-    def pintar_variacao(row):
-        estilos = []
-        is_variacao = 'Variação' in str(row.name)
-        for val in row:
-            if is_variacao and isinstance(val, (int, float)):
-                if val > 0:
-                    estilos.append('color: #d32f2f; font-weight: bold;')
-                elif val < 0:
-                    estilos.append('color: #2e7d32; font-weight: bold;')
-                else:
-                    estilos.append('')
-            else:
-                estilos.append('')
-        return estilos
-
-    # =======================================================
-    # 🚀 OTIMIZAÇÃO 2: DESCOBRIR MÊS DE CORTE UMA SÓ VEZ
-    # =======================================================
-    meses_cols = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 
-                  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
-    cols_existentes = [m for m in meses_cols if m in df_nivel.columns]
-    
-    mes_corte = 13
-    import re
-    # Em vez de ler cada linha, lê só as categorias únicas (Super rápido)
-    tipos_unicos = df_nivel['Tipo_Dado'].dropna().astype(str).unique()
-    for tipo in tipos_unicos:
-        match = re.search(r'P(\d{2})F', tipo)
-        if match:
-            mes_corte = int(match.group(1))
-            break
-            
-    meses_fechados = cols_existentes[:mes_corte-1]
-    meses_proj = cols_existentes[mes_corte-1:]
-
-    # =======================================================
-    # 🚀 OTIMIZAÇÃO 3: MÁSCARAS BOOLEANAS PRÉ-CALCULADAS
-    # =======================================================
+    # Máscaras Globais
     mask_pxxf = df_nivel['Tipo_Dado'].astype(str).str.contains(r'P\d{2}F', na=False)
     mask_aop = df_nivel['Tipo_Dado'] == 'AOP26'
     mask_2025 = df_nivel['Tipo_Dado'] == '2025'
 
-    # --- INÍCIO DO LAÇO DE RENDERIZAÇÃO ---
-    for item in itens:
-        # Fatiamento ultra-rápido por interseção lógica
+    for idx, item in enumerate(itens):
+        
+        # =======================================================
+        # 🔄 MOTOR DE ANIMAÇÃO 
+        # =======================================================
+        if profundidade == 0 and text_ui is not None and progress_ui is not None:
+            porcentagem = int(((idx + 1) / total_itens) * 100)
+            text_ui.info(f"⏳ Processando bloco mestre: **{item}** ({idx + 1}/{total_itens})")
+            progress_ui.progress(porcentagem)
+
         mask_item = (df_nivel[col] == item)
         
         df_pxxf = df_nivel[mask_item & mask_pxxf]
@@ -265,87 +265,65 @@ def render_planejamento_ui(df_nivel, dims, profundidade=0, filtro_contexto=None)
         fy_total = df_pxxf['Valor_FY'].sum()
         fy_2025 = df_2025['Valor_FY'].sum()
         
-        # MOTOR DE FILTRO (FOCO DA ANÁLISE)
         var_2025 = ytd_real - ytd_2025
         
+        # Filtro de negócio
         if foco_analise == "Apenas Savings (Eficiência)" and round(var_2025, 2) > 0:
             continue
         elif foco_analise == "Apenas Desvios (Gastos)" and round(var_2025, 2) <= 0:
             continue
-            
-        itens_exibidos += 1
+
+        # Lógica de Cores da Variação
+        cor_var = '#d32f2f' if round(var_2025, 2) > 0 else '#2e7d32' if round(var_2025, 2) < 0 else '#666'
+        sinal_var = '+' if round(var_2025, 2) > 0 else ''
 
         label_dim = LABELS_MAP.get(col, col)
         label_pref = '📌' if profundidade == 0 else '➥'
-        label_visual = f"{label_pref} {item} | YTD Real: {format_brl(ytd_real)} | Variação: {format_brl(var_2025)}".replace("$", "\$")
-
-        with st.expander(label_visual):
-            # Visão 1
-            st.markdown("#### Análise YTD (Meses Fechados)")
-            c1, c2, c3 = st.columns(3)
-            c1.metric("YTD Real", format_brl(ytd_real))
-            c2.metric("Meta (AOP)", format_brl(ytd_aop), *config_delta(ytd_real - ytd_aop))
-            c3.metric("Vs Ano Ant. (2025)", format_brl(ytd_2025), *config_delta(var_2025))
+        
+        # Componente Visual de Card (HTML numa linha só para evitar bloco de código)
+        def card_html(titulo, valor, var_valor=None):
+            var_html = ""
+            if var_valor is not None:
+                c_var = '#d32f2f' if round(var_valor, 2) > 0 else '#2e7d32' if round(var_valor, 2) < 0 else '#666'
+                s_var = '+' if round(var_valor, 2) > 0 else ''
+                var_html = f"<div style='font-size: 13px; font-weight: 600; color: {c_var}; margin-top: 6px;'>{s_var}{format_brl(var_valor)} (Variação)</div>"
             
-            # if meses_fechados:
-            #     st.write("") 
-            #     # 🚀 OTIMIZAÇÃO 4: Montagem da tabela reaproveitando o corte
-            #     df_tabela_ytd = pd.DataFrame({
-            #         'Real': df_pxxf[meses_fechados].sum(),
-            #         'Meta (AOP)': df_aop[meses_fechados].sum(),
-            #         'Ano Ant. (2025)': df_2025[meses_fechados].sum()
-            #     }).T 
-                
-            #     df_tabela_ytd.loc['Variação (Real - 2025)'] = df_tabela_ytd.loc['Real'] - df_tabela_ytd.loc['Ano Ant. (2025)']
-            #     df_tabela_ytd['Total YTD'] = df_tabela_ytd.sum(axis=1)
-                
-            #     st.dataframe(
-            #         df_tabela_ytd.style
-            #         .format(precision=2, decimal=',', thousands='.')
-            #         .apply(pintar_variacao, axis=1), 
-            #         use_container_width=True
-            #     )
-            
-            st.divider()
-            
-            # Visão 2
-            st.markdown("#### Projeção Resto do Ano (BOY)")
-            c4, c5 = st.columns(2)
-            c4.metric("BOY Projetado", format_brl(boy_proj))
-            c5.metric("BOY Ano Ant. (2025)", format_brl(boy_2025), *config_delta(boy_proj - boy_2025))
+            return f"<div style='flex: 1; min-width: 180px; padding: 12px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;'><div style='font-size: 13px; color: #666; font-weight: 600;'>{titulo}</div><div style='font-size: 20px; font-weight: bold; color: #111; margin-top: 4px;'>{format_brl(valor)}</div>{var_html}</div>"
 
-            # if meses_proj:
-            #     st.write("")
-            #     # 🚀 OTIMIZAÇÃO 4: Montagem da tabela reaproveitando o corte
-            #     df_tabela_boy = pd.DataFrame({
-            #         'Projetado': df_pxxf[meses_proj].sum(),
-            #         'Meta (AOP)': df_aop[meses_proj].sum(),
-            #         'Ano Ant. (2025)': df_2025[meses_proj].sum()
-            #     }).T 
-                
-            #     df_tabela_boy.loc['Variação (Proj. - 2025)'] = df_tabela_boy.loc['Projetado'] - df_tabela_boy.loc['Ano Ant. (2025)']
-            #     df_tabela_boy['Total BOY'] = df_tabela_boy.sum(axis=1)
-                
-            #     st.dataframe(
-            #         df_tabela_boy.style
-            #         .format(precision=2, decimal=',', thousands='.')
-            #         .apply(pintar_variacao, axis=1), 
-            #         use_container_width=True
-            #     )
+        # Recursão (Mandamos None para as UIs para evitar que a barra pisque fora de ordem)
+        novo_contexto = (filtro_contexto or {}).copy()
+        novo_contexto[col] = item
+        html_filhos = _gerar_html_recursivo(df_nivel, dims, profundidade + 1, novo_contexto, foco_analise, None, None)
 
-            st.divider()
+        # Montagem do HTML pai colando as strings linha a linha sem espaços no começo
+        html_item = (
+            f"<details style='margin-bottom: 10px; border: 1px solid #d1d5db; border-radius: 8px; background-color: #ffffff; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.05);'>"
+            f"<summary style='padding: 14px; font-weight: bold; cursor: pointer; background-color: #fcfcfc; border-bottom: 1px solid #eee; font-family: sans-serif; font-size: 15px;'>"
+            f"{label_pref} {item} <span style='font-weight: normal; color: #555; margin-left: 10px;'>| YTD Real: {format_brl(ytd_real)} | Variação: <span style='color: {cor_var}; font-weight: bold;'>{sinal_var}{format_brl(var_2025)}</span></span>"
+            f"</summary>"
+            f"<div style='padding: 20px; font-family: sans-serif;'>"
+            f"<div style='margin-bottom: 10px; font-size: 18px; font-weight: bold; color: #333; border-bottom: 2px solid #eee; padding-bottom: 5px;'>📊 Visão 1: Análise YTD</div>"
+            f"<div style='display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 25px;'>"
+            f"{card_html('YTD Real', ytd_real)}"
+            f"{card_html('Meta (AOP)', ytd_aop, ytd_real - ytd_aop)}"
+            f"{card_html('Vs Ano Ant. (2025)', ytd_2025, var_2025)}"
+            f"</div>"
+            f"<div style='margin-bottom: 10px; font-size: 18px; font-weight: bold; color: #333; border-bottom: 2px solid #eee; padding-bottom: 5px;'>🔮 Visão 2: Projeção Resto do Ano (BOY)</div>"
+            f"<div style='display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 25px;'>"
+            f"{card_html('BOY Projetado', boy_proj)}"
+            f"{card_html('BOY Ano Ant. (2025)', boy_2025, boy_proj - boy_2025)}"
+            f"</div>"
+            f"<div style='margin-bottom: 10px; font-size: 18px; font-weight: bold; color: #333; border-bottom: 2px solid #eee; padding-bottom: 5px;'>🎯 Visão 3: Ano Completo (FY)</div>"
+            f"<div style='display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 20px;'>"
+            f"{card_html('FY Estimado (YTD + BOY)', fy_total)}"
+            f"{card_html('FY Ano Ant. (2025)', fy_2025, fy_total - fy_2025)}"
+            f"</div>"
+            f"<div style='margin-top: 15px; padding-left: 20px; border-left: 3px solid #e5e7eb;'>"
+            f"{html_filhos}"
+            f"</div>"
+            f"</div>"
+            f"</details>"
+        )
+        html_completo += html_item
 
-            # Visão 3
-            st.markdown("#### Ano Completo (FY)")
-            c6, c7 = st.columns(2)
-            c6.metric("FY Estimado (YTD + BOY)", format_brl(fy_total))
-            c7.metric("FY Ano Ant. (2025)", format_brl(fy_2025), *config_delta(fy_total - fy_2025))
-
-            # Recursão para o próximo nível
-            novo_contexto = (filtro_contexto or {}).copy()
-            novo_contexto[col] = item
-            render_planejamento_ui(df_nivel, dims, profundidade + 1, novo_contexto)
-
-    # FEEDBACK VISUAL DE TELA VAZIA
-    if profundidade == 0 and itens_exibidos == 0:
-        st.info(f"Nenhum registro encontrado com o critério: **{foco_analise}**")
+    return html_completo

@@ -10,10 +10,22 @@ def render_initial_sidebar():
     """
     st.sidebar.title("Configurações")
     
+    # --- GATILHO DE HARD RESET ---
+    def reset_total_aplicativo():
+        """Varre e deleta todos os dados antigos ao trocar de modo."""
+        chaves_protegidas = ['modo_planilha_radio'] # Impede que o próprio botão quebre
+        for key in list(st.session_state.keys()):
+            if key not in chaves_protegidas:
+                del st.session_state[key]
+        import gc
+        gc.collect() # Chama o caminhão de lixo da memória RAM na hora
+    
     modo_planilha = st.sidebar.radio(
         "Selecione o formato da base:",
         ["Planilha do SAP (Transacional)", "Planilha com todas as contas"],
-        help="Altera o motor de cálculo para ler arquivos de projeção (PXXF/AOP)."
+        help="Altera o motor de cálculo para ler arquivos de projeção (PXXF/AOP).",
+        key="modo_planilha_radio", # Atrela o componente a uma chave fixa
+        on_change=reset_total_aplicativo # Dispara o reset no exato milissegundo do clique
     )
     st.session_state.modo_planilha = modo_planilha
     

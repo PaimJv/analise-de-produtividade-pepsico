@@ -345,66 +345,105 @@ def prepare_report_data(df, dims, ano_at, ano_ant):
     return agrupado, dims_com_paridade
 
 def render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade=0, filtro_contexto=None, selecao_meses=None):
-    """Relatório onde o Material é puramente informativo e os totais são preservados."""
+    """Relatório ultrarrápido em HTML puro com animação de carregamento (Modo SAP)."""
     if not dims:
         st.warning("Nenhuma dimensão de análise (P&L, VP, etc.) foi encontrada nos arquivos.")
         return
-    
+
+    # 1. Cria os espaços reservados para a Animação na tela
+    aviso_texto = st.empty()
+    barra_progresso = st.progress(0)
+
+    with st.spinner("Construindo painéis gerenciais na memória do navegador..."):
+        # 2. Chama o motor recursivo blindado em HTML
+        html_final = _gerar_html_sap_recursivo(
+            df_master, dims, ano_at, ano_ant, foco_res, 0, {}, selecao_meses, aviso_texto, barra_progresso
+        )
+
+    # 3. Limpa a barra de progresso da tela quando o trabalho terminar
+    aviso_texto.empty()
+    barra_progresso.empty()
+
+    if html_final.strip() == "":
+        st.info("Nenhum registro atende aos critérios de foco selecionados.")
+    else:
+        st.success("✅ Relatório detalhado renderizado com sucesso!")
+        st.markdown(f"<div style='padding-bottom: 50px;'>{html_final}</div>", unsafe_allow_html=True)
+
+
+def _gerar_html_sap_recursivo(df_nivel, dims, ano_at, ano_ant, foco_res, profundidade, filtro_contexto, selecao_meses, text_ui, progress_ui):
+    """Motor de geração de HTML puro para o SAP, evitando gargalos do Streamlit Markdown."""
     if profundidade >= len(dims):
-        return
+        return ""
 
     meses_nomes = {1:'Jan', 2:'Fev', 3:'Mar', 4:'Abr', 5:'Mai', 6:'Jun',
                    7:'Jul', 8:'Ago', 9:'Set', 10:'Out', 11:'Nov', 12:'Dez'}
 
     col = dims[profundidade]
-    
-    # Filtra a base master conforme o nível atual
-    df_nivel = df_master.copy()
+    html_completo = ""
+
+    # Filtra a base
     if filtro_contexto:
         for c, v in filtro_contexto.items():
             df_nivel = df_nivel.xs(v, level=c, drop_level=False)
 
-    # --- 🟢 NÍVEL FINAL: MATERIAIS (APENAS OBSERVAÇÃO) ---
+    # =========================================================
+    # 🟢 NÍVEL FINAL: MATERIAIS (Tabelas HTML leves)
+    # =========================================================
     if col == 'Desc_Material':
-        st.markdown(f"#### 📦 Balanço Detalhado de Objetos")
-        
-        # Agrupamos por Mês e Material pegando TUDO do contexto atual
+        html_mat = "<div style='margin-bottom: 10px; font-size: 16px; font-weight: bold; color: #333; border-bottom: 2px solid #eee; padding-bottom: 5px;'>📦 Balanço Detalhado por Material</div>"
+
         df_mat_mes = df_nivel.groupby(['Mes', 'Desc_Material'])[[ano_ant, ano_at]].sum()
-        
-        # Filtramos os meses aqui também para o Material não bugar
         meses_disponiveis = sorted(df_mat_mes.index.get_level_values('Mes').unique())
+
         if selecao_meses:
             meses_disponiveis = [m for m in meses_disponiveis if m in selecao_meses]
-        
+
         for m_num in meses_disponiveis:
-            st.write(f"📅 **Referência: {meses_nomes.get(m_num)}**")
-            df_exibir = df_mat_mes.xs(m_num, level='Mes').copy()
-            df_exibir.index.name = "Objeto"
-            df_exibir.columns = pd.MultiIndex.from_tuples([(str(ano_ant), "Valor"), (str(ano_at), "Valor")])
-            
-            t_at = df_exibir[(str(ano_at), "Valor")].sum()
-            t_ant = df_exibir[(str(ano_ant), "Valor")].sum()
-            df_total = pd.DataFrame([[format_brl(t_ant), format_brl(t_at)]], columns=df_exibir.columns, index=["Total Contexto"])
-            st.table(pd.concat([df_exibir.map(format_brl), df_total]))
-        return
+            nome_mes = meses_nomes.get(m_num, f"Mês {m_num}")
+            html_mat += f"<div style='margin-top: 15px; font-weight: bold; color: #444;'>📅 Referência: {nome_mes}</div>"
+            html_mat += f"<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 13px; margin-top: 5px; border: 1px solid #ddd;'>"
+            html_mat += f"<tr style='background-color: #f8f9fa;'><th style='padding: 8px; text-align: left; border-bottom: 1px solid #ddd;'>Objeto</th><th style='padding: 8px; text-align: right; border-bottom: 1px solid #ddd;'>{ano_ant}</th><th style='padding: 8px; text-align: right; border-bottom: 1px solid #ddd;'>{ano_at}</th></tr>"
 
-    # --- 🔵 NÍVEIS DE GESTÃO (CONTA, LOCALIDADE, CC, ETC) ---
+            df_exibir = df_mat_mes.xs(m_num, level='Mes')
+            t_ant_total = 0
+            t_at_total = 0
+
+            for mat, row in df_exibir.iterrows():
+                v_ant = row[ano_ant]
+                v_at = row[ano_at]
+                t_ant_total += v_ant
+                t_at_total += v_at
+                html_mat += f"<tr><td style='padding: 8px; border-bottom: 1px solid #eee;'>{mat}</td><td style='padding: 8px; text-align: right; border-bottom: 1px solid #eee;'>{format_brl(v_ant)}</td><td style='padding: 8px; text-align: right; border-bottom: 1px solid #eee;'>{format_brl(v_at)}</td></tr>"
+
+            html_mat += f"<tr style='font-weight: bold; background-color: #f1f3f5;'><td style='padding: 8px;'>Total Contexto</td><td style='padding: 8px; text-align: right;'>{format_brl(t_ant_total)}</td><td style='padding: 8px; text-align: right;'>{format_brl(t_at_total)}</td></tr>"
+            html_mat += "</table>"
+
+        return html_mat
+
+    # =========================================================
+    # 🔵 NÍVEIS DE GESTÃO (Contas, Localidades, etc.)
+    # =========================================================
     itens = sorted(df_nivel.index.get_level_values(col).unique().astype(str).tolist())
+    total_itens = len(itens)
 
-    # No logic.py, dentro da render_report_ui
-    for item in itens:
+    for idx, item in enumerate(itens):
+        
+        # 🔄 MOTOR DE ANIMAÇÃO (Atualiza apenas na Dimensão Mestre)
+        if profundidade == 0 and text_ui is not None and progress_ui is not None:
+            porcentagem = int(((idx + 1) / total_itens) * 100)
+            text_ui.info(f"⏳ Processando bloco SAP: **{item}** ({idx + 1}/{total_itens})")
+            progress_ui.progress(porcentagem)
+
         df_item = df_nivel.xs(item, level=col, drop_level=False)
-        
-        # 1. Calculamos o Delta Mensal
         delta_mensal = df_item.groupby(level='Mes', observed=True)['Delta'].sum()
-        
+
         if selecao_meses:
             selecao_ints = [int(m) for m in selecao_meses]
             delta_mensal = delta_mensal[delta_mensal.index.isin(selecao_ints)]
-                    
-        # 3. Total do período baseado APENAS nos meses filtrados
+
         var_total = delta_mensal.sum()
-        
+
         def meets_foco(val):
             if abs(val) < 1000: return False
             if "Savings" in foco_res: return val < 0
@@ -416,23 +455,41 @@ def render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade=0,
             sub_impacto = df_item['Delta'].groupby(level=dims[profundidade+1]).sum().apply(meets_foco).any()
 
         if meets_foco(var_total) or sub_impacto:
-            label = f"{'📌' if profundidade == 0 else '➥'} {item} | Total Período: {format_brl(var_total)}"
-            
-            # Usamos uma chave simples para o expander (apenas item e profundidade)
-            with st.expander(label, key=f"exp_{profundidade}_{item}"):
-                st.write("**Variação Mensal YoY (Impacto no Resultado):**")
-                
-                if not delta_mensal.empty:
-                    # O segredo do layout: st.columns recebe o tamanho exato do que sobrou no filtro
-                    cols = st.columns(len(delta_mensal))
-                    for idx, m_num in enumerate(delta_mensal.index):
-                        with cols[idx]:
-                            st.caption(meses_nomes.get(int(m_num), f"Mês {m_num}"))
-                            st.write(format_brl(delta_mensal[m_num]))
-                
-                st.divider()
-                novo_contexto = (filtro_contexto or {}).copy()
-                novo_contexto[col] = item
-                
-                # RECURSÃO: Passamos o selecao_meses adiante
-                render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade + 1, novo_contexto, selecao_meses=selecao_meses)
+            cor_var = '#d32f2f' if var_total > 0 else '#2e7d32' if var_total < 0 else '#666'
+            sinal_var = '+' if var_total > 0 else ''
+            label_pref = '📌' if profundidade == 0 else '➥'
+
+            # Construção dos Cards Mensais em HTML
+            html_meses = ""
+            for m_num in delta_mensal.index:
+                val_mes = delta_mensal[m_num]
+                cor_mes = '#d32f2f' if val_mes > 0 else '#2e7d32' if val_mes < 0 else '#666'
+                sin_mes = '+' if val_mes > 0 else ''
+                nome_m = meses_nomes.get(int(m_num), f"Mês {m_num}")
+                html_meses += f"<div style='background-color: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 6px; padding: 10px; min-width: 110px; text-align: center; flex: 1;'><div style='font-size: 12px; color: #666; margin-bottom: 4px;'>{nome_m}</div><div style='font-size: 14px; font-weight: bold; color: {cor_mes};'>{sin_mes}{format_brl(val_mes)}</div></div>"
+
+            # Recursão antecipada para os filhos
+            novo_contexto = (filtro_contexto or {}).copy()
+            novo_contexto[col] = item
+            html_filhos = _gerar_html_sap_recursivo(df_nivel, dims, ano_at, ano_ant, foco_res, profundidade + 1, novo_contexto, selecao_meses, None, None)
+
+            # Montagem do Painel (Sem espaços no começo da linha para evitar Markdown Code Block)
+            html_item = (
+                f"<details style='margin-bottom: 10px; border: 1px solid #d1d5db; border-radius: 8px; background-color: #ffffff; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.05);'>"
+                f"<summary style='padding: 14px; font-weight: bold; cursor: pointer; background-color: #fcfcfc; border-bottom: 1px solid #eee; font-family: sans-serif; font-size: 15px;'>"
+                f"{label_pref} {item} <span style='font-weight: normal; color: #555; margin-left: 10px;'>| Total Período: <span style='color: {cor_var}; font-weight: bold;'>{sinal_var}{format_brl(var_total)}</span></span>"
+                f"</summary>"
+                f"<div style='padding: 20px; font-family: sans-serif;'>"
+                f"<div style='font-weight: bold; margin-bottom: 12px; font-size: 14px; color: #444;'>Variação Mensal YoY (Impacto no Resultado):</div>"
+                f"<div style='display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px;'>"
+                f"{html_meses}"
+                f"</div>"
+                f"<div style='border-left: 3px solid #e5e7eb; padding-left: 15px;'>"
+                f"{html_filhos}"
+                f"</div>"
+                f"</div>"
+                f"</details>"
+            )
+            html_completo += html_item
+
+    return html_completo
