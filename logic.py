@@ -1,3 +1,4 @@
+import sys
 import streamlit as st
 import pandas as pd
 import gc
@@ -5,6 +6,15 @@ import calendar
 import json, os
 import io
 from utils import mapeamento, get_yoy_data
+
+def get_base_path():
+    """Retorna o caminho absoluto da pasta onde o programa (ou .exe) está fisicamente localizado."""
+    if getattr(sys, 'frozen', False):
+        # Se estiver rodando como .exe compilado
+        return os.path.dirname(sys.executable)
+    else:
+        # Se estiver rodando como script normal no VS Code
+        return os.path.dirname(os.path.abspath(__file__))
 
 def to_excel(df):
     """Converte um DataFrame para o formato binário do Excel (XLSX)."""
@@ -16,13 +26,35 @@ def to_excel(df):
         
     return output.getvalue()
 
+def encontrar_arquivo_local(nome_arquivo):
+    """Radar: Busca o arquivo na pasta do .exe, no VS Code ou na pasta atual."""
+    caminhos_possiveis = [
+        os.getcwd(), # 1ª Tentativa: A pasta onde o usuário clicou no .exe
+    ]
+    if getattr(sys, 'frozen', False):
+        caminhos_possiveis.append(os.path.dirname(sys.executable)) # 2ª Tentativa: Diretório real do .exe
+    else:
+        caminhos_possiveis.append(os.path.dirname(os.path.abspath(__file__))) # 3ª Tentativa: VS Code
+
+    for pasta in caminhos_possiveis:
+        caminho_completo = os.path.join(pasta, nome_arquivo)
+        if os.path.exists(caminho_completo):
+            return caminho_completo
+            
+    return None # Não achou em lugar nenhum
+
 def carregar_referencia():
-    """Carrega o JSON de assinaturas se ele existir."""
-    if os.path.exists('referencia_colunas.json'):
-        with open('referencia_colunas.json', 'r', encoding='utf-8') as f:
-            return json.load(f)
+    """Carrega o JSON usando o radar."""
+    caminho_json = encontrar_arquivo_local('referencia_colunas.json')
+    if caminho_json:
+        try:
+            with open(caminho_json, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Erro ao ler JSON: {e}")
     return {}
 
+# Agora o conteúdo já fica salvo na memória para o aplicativo inteiro usar
 REFERENCIA_CONTEUDO = carregar_referencia()
 
 def init_state():
@@ -98,13 +130,16 @@ def get_highlights_summary(df, ano_at, ano_ant):
 
 @st.cache_data(show_spinner=False)
 def carregar_bases_apoio():
-    """Carrega os arquivos Parquet em memória cache ultrarrápida (Lê apenas 1 vez)."""
+    """Carrega os arquivos Parquet garantindo que o .exe não se perca."""
+    caminho_contas = encontrar_arquivo_local("dim_contas.parquet")
+    caminho_cc = encontrar_arquivo_local("dim_centros_custo.parquet")
+    
     try:
-        df_contas = pd.read_parquet("dim_contas.parquet")
-        df_cc = pd.read_parquet("dim_centros_custo.parquet")
+        df_contas = pd.read_parquet(caminho_contas) if caminho_contas else None
+        df_cc = pd.read_parquet(caminho_cc) if caminho_cc else None
         return df_contas, df_cc
     except Exception as e:
-        st.warning("⚠️ Bases de apoio (.parquet) não encontradas. Verifique se os arquivos estão na pasta.")
+        st.warning(f"⚠️ Erro ao carregar Parquets. Verifique os arquivos: {e}")
         return None, None
 
 @st.cache_data(show_spinner="Otimizando base de dados...")
@@ -154,29 +189,57 @@ def load_and_process_base(files):
 
             # 2. MAPEAMENTO INTELIGENTE (NOME + CONTEÚDO/SINÔNIMOS)
             colunas_reais = df_header.columns.tolist()
-            col_map_arquivo = {c.strip().lower(): c for c in colunas_reais}
-            map_limpo = {k.strip().lower(): v for k, v in mapeamento.items()}
+            col_map_arquivo = {str(c).strip().lower(): c for c in colunas_reais}
+            map_limpo = {str(k).strip().lower(): v for k, v in mapeamento.items()}
+            
+            # 🚀 VACINA DE SEGURANÇA (Hardcoded)
+            map_limpo['data de lançamento'] = 'Data_Lancamento'
+            map_limpo['dt.lçto'] = 'Data_Lancamento'
+            map_limpo['data de lancamento'] = 'Data_Lancamento'
             
             tradução_final = {}
             colunas_sistema_obrigatorias = ['Classe_Custo', 'Centro_Custo', 'Valor', 'Data_Lancamento']
             
-            # A) BUSCA POR NOME (Dicionário Utils)
+            # A) BUSCA POR NOME
             for k_limpo, v_sistema in map_limpo.items():
                 if k_limpo in col_map_arquivo:
                     nome_original = col_map_arquivo[k_limpo]
                     tradução_final[nome_original] = v_sistema
             
-            # B) BUSCA POR HEURÍSTICA (JSON de Referência)
+            # 🚀 B) O "TESTE DE DNA" COM OS PARQUETS (A SUA IDEIA!)
             faltantes = [c for c in colunas_sistema_obrigatorias if c not in tradução_final.values()]
+            colunas_ignotas = [c for c in colunas_reais if c not in tradução_final.keys()]
             
-            if faltantes and os.path.exists('referencia_colunas.json'):
-                with open('referencia_colunas.json', 'r', encoding='utf-8') as ref_file:
-                    ref_data = json.load(ref_file)
+            # Carregamos os Parquets rapidamente para usar como lista oficial
+            df_contas_ref, df_cc_ref = carregar_bases_apoio()
+            set_contas = set(df_contas_ref['Conta'].dropna().astype(str).str.replace(r'\.0$', '', regex=True).str.strip()) if df_contas_ref is not None else set()
+            set_cc = set(df_cc_ref['CC'].dropna().astype(str).str.replace(r'\.0$', '', regex=True).str.strip()) if df_cc_ref is not None else set()
+            
+            for col_arq in colunas_ignotas[:]:
+                if not faltantes: break
                 
-                colunas_ignotas = [c for c in colunas_reais if c not in tradução_final.keys()]
+                # Extrai 100 valores da coluna misteriosa do arquivo
+                amostra = set(df_header[col_arq].dropna().astype(str).str.replace(r'\.0$', '', regex=True).str.strip().tolist())
                 
-                for col_arq in colunas_ignotas[:]: # Cópia para permitir remoção
-                    nome_col_arq_limpo = col_arq.strip().lower()
+                # Bateu com a base de Contas?
+                if 'Classe_Custo' in faltantes and amostra.intersection(set_contas):
+                    tradução_final[col_arq] = 'Classe_Custo'
+                    faltantes.remove('Classe_Custo')
+                    colunas_ignotas.remove(col_arq)
+                    continue
+                    
+                # Bateu com a base de CC?
+                if 'Centro_Custo' in faltantes and amostra.intersection(set_cc):
+                    tradução_final[col_arq] = 'Centro_Custo'
+                    faltantes.remove('Centro_Custo')
+                    colunas_ignotas.remove(col_arq)
+                    continue
+
+            # C) FALLBACK PARA O JSON (Apenas para achar o Valor e a Data)
+            if faltantes and REFERENCIA_CONTEUDO:
+                ref_data = REFERENCIA_CONTEUDO
+                for col_arq in colunas_ignotas[:]: 
+                    nome_col_arq_limpo = str(col_arq).strip().lower()
                     for nome_sistema_ref, exemplos_ref in ref_data.items():
                         if nome_sistema_ref in faltantes:
                             sinonimos = [str(e).strip().lower() for e in exemplos_ref]
@@ -185,37 +248,19 @@ def load_and_process_base(files):
                                 faltantes.remove(nome_sistema_ref)
                                 colunas_ignotas.remove(col_arq)
                                 break
-                
-                # --- ONDA 2: BUSCA POR CONTEÚDO (DNA) ---
-                # Só entra aqui se o nome da coluna não deu match na Onda 1
-                for col_arq in colunas_ignotas:
-                    if not faltantes: break
-                    
-                    amostra_real = [str(x) for x in df_header[col_arq].dropna().unique().tolist()]
-                    
-                    for nome_sistema_ref, exemplos_ref in ref_data.items():
-                        if nome_sistema_ref in faltantes:
-                            exemplos_baixos = [str(e).lower() for e in exemplos_ref]
-                            
-                            # if nome_sistema_ref == "Valor":
-                            #     continue
-                            
-                            match_encontrado = False
-                            for dado_arquivo in amostra_real:
-                                for ex_json in exemplos_baixos:
-                                    if ex_json in dado_arquivo: 
-                                        match_encontrado = True
-                                        break
-                                if match_encontrado: break
-                            
-                            if match_encontrado:
-                                tradução_final[col_arq] = nome_sistema_ref
-                                faltantes.remove(nome_sistema_ref)
-                                break
-                
-            # 3. TRAVA DE SEGURANÇA (Evita o KeyError: 'Mes')
+                                
+            # 3. TRAVA DE SEGURANÇA COM ERRO "RAIO-X"
             if 'Data_Lancamento' not in tradução_final.values():
-                return f"Erro: A coluna de DATA não foi encontrada em {f.name}.", None, None, None
+                caminho_usado = encontrar_arquivo_local('referencia_colunas.json')
+                cols_lidas = [str(c) for c in colunas_reais[:15]] # Pega as 15 primeiras colunas para diagnóstico
+                
+                msg_erro = (
+                    f"❌ **A coluna de DATA não foi encontrada no arquivo:** `{f.name}`.\n\n"
+                    f"🔍 **Raio-X do que o .exe enxergou na sua planilha:**\n"
+                    f"`{cols_lidas}`\n\n"
+                    f"📂 **JSON procurado em:** `{caminho_usado}`"
+                )
+                return msg_erro, None, None, None
 
             # 4. LEITURA COMPLETA OTIMIZADA
             f.seek(0)
@@ -271,9 +316,18 @@ def load_and_process_base(files):
         # 1. Limpeza extrema de caracteres invisíveis nas chaves
         df_contas['Conta'] = df_contas['Conta'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
         df_cc['CC'] = df_cc['CC'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
-        df['Classe_Custo'] = df['Classe_Custo'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
-        df['Centro_Custo'] = df['Centro_Custo'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
         
+        # 🛡️ PROTEÇÃO CONTRA KEYERROR (Garante que a coluna existe antes de limpar)
+        if 'Classe_Custo' in df.columns:
+            df['Classe_Custo'] = df['Classe_Custo'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+        else:
+            df['Classe_Custo'] = "000000"
+            
+        if 'Centro_Custo' in df.columns:
+            df['Centro_Custo'] = df['Centro_Custo'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+        else:
+            df['Centro_Custo'] = "CC_INDEFINIDO"
+            
         # 🛡️ TRAVA ABSOLUTA CONTRA MULTIPLICAÇÃO DE VALORES
         df_contas = df_contas.groupby('Conta', as_index=False).first()
         df_cc = df_cc.groupby('CC', as_index=False).first()
