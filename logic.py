@@ -312,14 +312,16 @@ def load_and_process_base(files):
 
     # 🚀 O SEGREDO DE OURO PARA A NUVEM: PRÉ-AGRUPAMENTO
     # Em vez de processar o PROCV em milhões de linhas individuais (estourando o servidor),
-    # nós somamos os valores por Conta/CC/Mês ANTES de tudo. 
-    # A base encolhe 99% e o uso de memória cai de 1.5GB para menos de 10MB!
-    # OBS: O dropna=False garante que valores vazios não desapareçam.
+    # nós agrupamos tudo. Somamos o Valor e pegamos a data máxima (necessário para o utils.py)
+    # A base encolhe 99% e o uso de memória cai drasticamente!
     df = df.groupby(
         ['Classe_Custo', 'Centro_Custo', 'Desc_Material', 'Ano', 'Mes'], 
         dropna=False, 
         as_index=False
-    )['Valor'].sum()
+    ).agg({
+        'Valor': 'sum',
+        'Data_Lancamento': 'max' # Mantém a última data do mês para não quebrar o utils.py
+    })
     
     gc.collect() # Passa a vassoura na RAM de novo
 
