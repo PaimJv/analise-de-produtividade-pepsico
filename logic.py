@@ -128,7 +128,7 @@ def get_highlights_summary(df, ano_at, ano_ant):
         
     return summary
 
-@st.cache_data(show_spinner=False)
+# @st.cache_data(show_spinner=False)
 def carregar_bases_apoio():
     """Carrega os arquivos Parquet garantindo que o .exe não se perca."""
     caminho_contas = encontrar_arquivo_local("dim_contas.parquet")
@@ -300,9 +300,11 @@ def load_and_process_base(files):
     
     # Junta os arquivos transacionais mensais
     df = pd.concat(dfs, ignore_index=True)
+    
+    del dfs # 🚀 Esvazia a lista temporária da memória
+    gc.collect() # 🚀 Limpa a RAM imediatamente
 
     # 🚀 PREPARAÇÃO DO ESQUEMA ESTRELA (Isola apenas Fatos e Chaves)
-    # Exclui colunas de texto, MAS mantém a 'Desc_Material' que é nativa da transação
     colunas_fatos = ['Classe_Custo', 'Centro_Custo', 'Desc_Material', 'Data_Lancamento', 'Valor', 'Ano', 'Mes']
     colunas_presentes = [c for c in colunas_fatos if c in df.columns]
     df = df[colunas_presentes]
@@ -317,7 +319,7 @@ def load_and_process_base(files):
         df_contas['Conta'] = df_contas['Conta'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
         df_cc['CC'] = df_cc['CC'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
         
-        # 🛡️ PROTEÇÃO CONTRA KEYERROR (Garante que a coluna existe antes de limpar)
+        # 🛡️ PROTEÇÃO CONTRA KEYERROR
         if 'Classe_Custo' in df.columns:
             df['Classe_Custo'] = df['Classe_Custo'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
         else:
@@ -327,17 +329,24 @@ def load_and_process_base(files):
             df['Centro_Custo'] = df['Centro_Custo'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
         else:
             df['Centro_Custo'] = "CC_INDEFINIDO"
-            
+        
         # 🛡️ TRAVA ABSOLUTA CONTRA MULTIPLICAÇÃO DE VALORES
         df_contas = df_contas.groupby('Conta', as_index=False).first()
         df_cc = df_cc.groupby('CC', as_index=False).first()
         
-        # CRUZAMENTO 1 e 2
+        # CRUZAMENTO 1 (CONTAS)
         df = df.merge(df_contas[['Conta', 'Desc Conta', 'Pacote', 'P&L']], 
                       left_on='Classe_Custo', right_on='Conta', how='left', validate='m:1')
         
+        del df_contas # 🚀 Destrói a base de apoio de contas após o cruzamento
+        gc.collect()  # 🚀 Limpa a RAM
+        
+        # CRUZAMENTO 2 (CENTROS DE CUSTO)
         df = df.merge(df_cc[['CC', 'Descricao CC', 'VP', 'Diretoria', 'Local', 'Localidade', 'Empresa', 'Responsável']], 
                       left_on='Centro_Custo', right_on='CC', how='left', validate='m:1')
+        
+        del df_cc # 🚀 Destrói a base de apoio de CC após o cruzamento
+        gc.collect() # 🚀 Limpa a RAM
         
         # =========================================================
         # RECONSTRUÇÃO DOS NOMES PARA A INTERFACE UI
