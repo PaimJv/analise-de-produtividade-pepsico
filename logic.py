@@ -360,6 +360,14 @@ def load_and_process_base(files):
         
         df['Centro_Custo'] = df['Descricao CC'].astype(object).fillna("Sem Descrição") + " (" + df['Centro_Custo'].astype(object).fillna("000") + ")"
         
+        # 🚀 LIXEIRA VIP CONTRA O OUT OF MEMORY (NUVEM):
+        # Apaga todas as colunas do Parquet e do SAP que já não são úteis para a interface.
+        # Isto liberta centenas de Megabytes de RAM instantaneamente!
+        colunas_lixo = ['Classe_Custo', 'Conta', 'Desc Conta', 'CC', 'Descricao CC', 'Empresa', 'Local', 'Responsável']
+        col_existentes = [c for c in colunas_lixo if c in df.columns]
+        df.drop(columns=col_existentes, inplace=True)
+        gc.collect() # Força o servidor a limpar a RAM
+        
     else:
         # Fallback
         df['Desc_Conta'] = df.get('Classe_Custo', '0000')
