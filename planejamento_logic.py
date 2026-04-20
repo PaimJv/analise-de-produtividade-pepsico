@@ -153,10 +153,22 @@ def process_all_accounts_format(files):
             df['Valor_FY'] = df['Valor_YTD'] + df['Valor_BOY']
 
         # =========================================================
-        # 5. BLINDAGEM DE HIERARQUIA
+        # 5. BLINDAGEM DE HIERARQUIA E REMOÇÃO DE LIXO SAP
         # =========================================================
+        if 'Classe_Custo' in df.columns:
+            # 1. Limpeza bruta de formatação
+            df['Classe_Custo'] = df['Classe_Custo'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+            
+            # 2. 🚀 O FILTRO DEFINITIVO: Extrai o código e exige 7 dígitos numéricos
+            # Isso expulsa da base todos os Pacotes, Subtotais e lixos que o SAP joga na coluna de Contas
+            codigos = df['Classe_Custo'].str.extract(r'(\d+)\s*$')[0]
+            mask_ok = (codigos.str.len() == 7) & (codigos != '1111111')
+            df = df[mask_ok]
+
         if 'DenConta' in df.columns and 'Classe_Custo' in df.columns:
-            df['Desc_Conta'] = df['DenConta'].astype(str) + " - " + df['Classe_Custo'].astype(str)
+            # 3. 🚀 BLINDAGEM VISUAL: Removemos quebras de linha (\n) que destroem as caixas HTML
+            den_conta_limpa = df['DenConta'].astype(str).str.replace('\n', ' ', regex=False).str.replace('\r', '', regex=False)
+            df['Desc_Conta'] = den_conta_limpa + " - " + df['Classe_Custo']
         else:
             df['Desc_Conta'] = "Não Especificado"
             
@@ -196,43 +208,47 @@ def format_brl(val):
     return f"{prefix}{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 def render_planejamento_ui(df_nivel, dims, profundidade=0, filtro_contexto=None):
-    """Função Wrapper com Animação de Carregamento em Tempo Real"""
+    """Função Wrapper com Renderização em Blocos (Proteção contra Estouro de HTML)"""
     foco_analise = st.session_state.get('radio_foco_ia', 'Análise 360° (Ambos)')
     
-    # 1. Cria os espaços reservados para a Animação na tela
+    # 1. Cria os espaços reservados no topo da tela
+    msg_topo = st.empty()
     aviso_texto = st.empty()
     barra_progresso = st.progress(0)
     
-    with st.spinner("Iniciando motor de renderização estrutural..."):
-        # 2. Passa os componentes de animação para o motor rodar
-        html_final = _gerar_html_recursivo(df_nivel, dims, 0, {}, foco_analise, aviso_texto, barra_progresso)
+    with st.spinner("Construindo painéis gerenciais em blocos independentes..."):
+        # 2. Chama o motor com o parâmetro 'render_direct=True'
+        teve_dados = _gerar_html_recursivo(
+            df_nivel, dims, 0, {}, foco_analise, aviso_texto, barra_progresso, render_direct=True
+        )
         
-    # 3. Limpa a barra de progresso da tela quando o trabalho terminar
+    # 3. Limpa a barra de progresso da tela
     aviso_texto.empty()
     barra_progresso.empty()
     
-    if html_final.strip() == "":
-        st.info(f"Nenhum registro encontrado com o critério: **{foco_analise}**")
+    # 4. Exibe a mensagem no topo reservado
+    if not teve_dados:
+        msg_topo.info(f"Nenhum registro encontrado com o critério: **{foco_analise}**")
     else:
-        # Mensagem de sucesso rápida antes da tabela HTML
-        st.success("✅ Relatório renderizado com sucesso!")
-        st.markdown(f"<div style='padding-bottom: 50px;'>{html_final}</div>", unsafe_allow_html=True)
+        msg_topo.success("✅ Relatório renderizado por completo!")
 
 
-def _gerar_html_recursivo(df_nivel, dims, profundidade, filtro_contexto, foco_analise, text_ui=None, progress_ui=None):
-    """Motor de geração de HTML/CSS com callback de progresso. (Seguro contra CodeBlocks do Markdown)"""
+def _gerar_html_recursivo(df_nivel, dims, profundidade, filtro_contexto, foco_analise, text_ui=None, progress_ui=None, render_direct=False):
+    """Motor blindado que renderiza bloco a bloco na tela para evitar cortes de HTML."""
     if not dims or profundidade >= len(dims):
         return ""
 
     col = dims[profundidade]
     
+    # Força a conversão de ambos os lados para texto puro antes de filtrar
     if filtro_contexto:
         for c, v in filtro_contexto.items():
-            df_nivel = df_nivel[df_nivel[c] == v]
+            df_nivel = df_nivel[df_nivel[c].astype(str) == str(v)]
 
     itens = sorted(df_nivel[col].dropna().unique().astype(str).tolist())
     total_itens = len(itens)
     html_completo = ""
+    encontrou_dados = False
 
     # Máscaras Globais
     mask_pxxf = df_nivel['Tipo_Dado'].astype(str).str.contains(r'P\d{2}F', na=False)
@@ -241,15 +257,13 @@ def _gerar_html_recursivo(df_nivel, dims, profundidade, filtro_contexto, foco_an
 
     for idx, item in enumerate(itens):
         
-        # =======================================================
         # 🔄 MOTOR DE ANIMAÇÃO 
-        # =======================================================
         if profundidade == 0 and text_ui is not None and progress_ui is not None:
             porcentagem = int(((idx + 1) / total_itens) * 100)
-            text_ui.info(f"⏳ Processando bloco mestre: **{item}** ({idx + 1}/{total_itens})")
+            text_ui.info(f"⏳ Processando e renderizando: **{item}** ({idx + 1}/{total_itens})")
             progress_ui.progress(porcentagem)
 
-        mask_item = (df_nivel[col] == item)
+        mask_item = (df_nivel[col].astype(str) == item)
         
         df_pxxf = df_nivel[mask_item & mask_pxxf]
         df_aop = df_nivel[mask_item & mask_aop]
@@ -273,6 +287,8 @@ def _gerar_html_recursivo(df_nivel, dims, profundidade, filtro_contexto, foco_an
         elif foco_analise == "Apenas Desvios (Gastos)" and round(var_2025, 2) <= 0:
             continue
 
+        encontrou_dados = True
+
         # Lógica de Cores da Variação
         cor_var = '#d32f2f' if round(var_2025, 2) > 0 else '#2e7d32' if round(var_2025, 2) < 0 else '#666'
         sinal_var = '+' if round(var_2025, 2) > 0 else ''
@@ -280,7 +296,7 @@ def _gerar_html_recursivo(df_nivel, dims, profundidade, filtro_contexto, foco_an
         label_dim = LABELS_MAP.get(col, col)
         label_pref = '📌' if profundidade == 0 else '➥'
         
-        # Componente Visual de Card (HTML numa linha só para evitar bloco de código)
+        # Componente Visual de Card
         def card_html(titulo, valor, var_valor=None):
             var_html = ""
             if var_valor is not None:
@@ -290,14 +306,14 @@ def _gerar_html_recursivo(df_nivel, dims, profundidade, filtro_contexto, foco_an
             
             return f"<div style='flex: 1; min-width: 180px; padding: 12px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;'><div style='font-size: 13px; color: #666; font-weight: 600;'>{titulo}</div><div style='font-size: 20px; font-weight: bold; color: #111; margin-top: 4px;'>{format_brl(valor)}</div>{var_html}</div>"
 
-        # Recursão (Mandamos None para as UIs para evitar que a barra pisque fora de ordem)
+        # Recursão (Filhos não renderizam direto, devolvem o texto para o pai)
         novo_contexto = (filtro_contexto or {}).copy()
         novo_contexto[col] = item
-        html_filhos = _gerar_html_recursivo(df_nivel, dims, profundidade + 1, novo_contexto, foco_analise, None, None)
+        html_filhos = _gerar_html_recursivo(df_nivel, dims, profundidade + 1, novo_contexto, foco_analise, None, None, render_direct=False)
 
-        # Montagem do HTML pai colando as strings linha a linha sem espaços no começo
+        # Montagem do HTML Pai
         html_item = (
-            f"<details style='margin-bottom: 10px; border: 1px solid #d1d5db; border-radius: 8px; background-color: #ffffff; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.05);'>"
+            f"<details style='margin-bottom: 10px; border: 1px solid #d1d5db; border-radius: 8px; background-color: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,0.05);'>"
             f"<summary style='padding: 14px; font-weight: bold; cursor: pointer; background-color: #fcfcfc; border-bottom: 1px solid #eee; font-family: sans-serif; font-size: 15px;'>"
             f"{label_pref} {item} <span style='font-weight: normal; color: #555; margin-left: 10px;'>| YTD Real: {format_brl(ytd_real)} | Variação: <span style='color: {cor_var}; font-weight: bold;'>{sinal_var}{format_brl(var_2025)}</span></span>"
             f"</summary>"
@@ -324,6 +340,15 @@ def _gerar_html_recursivo(df_nivel, dims, profundidade, filtro_contexto, foco_an
             f"</div>"
             f"</details>"
         )
-        html_completo += html_item
+        
+        # 🚀 O PULO DO GATO: Se for o nível mestre, desenha direto na tela!
+        if render_direct:
+            st.markdown(html_item, unsafe_allow_html=True)
+        else:
+            html_completo += html_item
 
+    # Retorna booleano para o nível mestre, e HTML para os filhos
+    if render_direct:
+        return encontrou_dados
+    
     return html_completo
