@@ -128,7 +128,7 @@ def get_highlights_summary(df, ano_at, ano_ant):
         
     return summary
 
-@st.cache_data(show_spinner=False)
+# @st.cache_data(show_spinner=False)
 def carregar_bases_apoio():
     """Carrega as bases de dimensão em CSV GZIP. 
     Leve como Parquet, universal como texto e sem conflitos de versão!"""
