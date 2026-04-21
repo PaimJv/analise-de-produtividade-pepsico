@@ -130,8 +130,7 @@ def get_highlights_summary(df, ano_at, ano_ant):
 
 # @st.cache_data(show_spinner=False)
 def carregar_bases_apoio():
-    """Carrega as bases de dimensão em CSV GZIP. 
-    Leve como Parquet, universal como texto e sem conflitos de versão!"""
+    """Carrega as bases de dimensão em CSV GZIP forçando os códigos como String."""
     caminho_contas = encontrar_arquivo_local("dim_contas.csv.gz")
     caminho_cc = encontrar_arquivo_local("dim_centros_custo.csv.gz")
     
@@ -141,18 +140,22 @@ def carregar_bases_apoio():
         
         if caminho_contas:
             with open(caminho_contas, "rb") as f:
-                # 🚀 O segredo está aqui: pd.read_csv (NÃO read_pickle)
-                df_contas = pd.read_csv(io.BytesIO(f.read()), sep=';', encoding='utf-8-sig', compression='gzip', low_memory=False)
+                # O parâmetro dtype={'Conta': str} impede que o código perca zeros à esquerda
+                df_contas = pd.read_csv(io.BytesIO(f.read()), sep=';', encoding='utf-8-sig', 
+                                       compression='gzip', low_memory=False, 
+                                       dtype={'Conta': str, 'CC': str}) # Força texto nas chaves
                 
         if caminho_cc:
             with open(caminho_cc, "rb") as f:
-                # 🚀 E aqui também: pd.read_csv
-                df_cc = pd.read_csv(io.BytesIO(f.read()), sep=';', encoding='utf-8-sig', compression='gzip', low_memory=False)
+                df_cc = pd.read_csv(io.BytesIO(f.read()), sep=';', encoding='utf-8-sig', 
+                                    compression='gzip', low_memory=False, 
+                                    dtype={'CC': str, 'Conta': str})
                 
         return df_contas, df_cc
     except Exception as e:
-        st.warning(f"⚠️ Erro ao carregar as bases de apoio compactadas: {e}")
+        st.warning(f"⚠️ Erro ao carregar as bases de apoio: {e}")
         return None, None
+
 
 # @st.cache_data(show_spinner="Otimizando base de dados...")
 def load_and_process_base(files):
@@ -339,39 +342,43 @@ def load_and_process_base(files):
     df_contas, df_cc = carregar_bases_apoio()
     
     if df_contas is not None and df_cc is not None:
-        df_contas['Conta'] = df_contas['Conta'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
-        df_cc['CC'] = df_cc['CC'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+        # 1. Blindagem Absoluta: Forçar texto e cortar qualquer casa decimal indesejada
+        df_contas['Conta'] = df_contas['Conta'].astype(str).str.split('.').str[0].str.strip()
+        df_cc['CC'] = df_cc['CC'].astype(str).str.split('.').str[0].str.strip()
         
         if 'Classe_Custo' in df.columns:
-            df['Classe_Custo'] = df['Classe_Custo'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+            df['Classe_Custo'] = df['Classe_Custo'].astype(str).str.split('.').str[0].str.strip()
         else:
             df['Classe_Custo'] = "000000"
             
         if 'Centro_Custo' in df.columns:
-            df['Centro_Custo'] = df['Centro_Custo'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+            df['Centro_Custo'] = df['Centro_Custo'].astype(str).str.split('.').str[0].str.strip()
         else:
             df['Centro_Custo'] = "CC_INDEFINIDO"
         
-        df_contas = df_contas.groupby('Conta', as_index=False).first()
-        df_cc = df_cc.groupby('CC', as_index=False).first()
+        # Elimina duplicatas para o Merge não estourar a memória multiplicando linhas
+        df_contas = df_contas.drop_duplicates(subset=['Conta'])
+        df_cc = df_cc.drop_duplicates(subset=['CC'])
         
+        # CRUZAMENTOS
         df = df.merge(df_contas[['Conta', 'Desc Conta', 'Pacote', 'P&L']], 
-                      left_on='Classe_Custo', right_on='Conta', how='left', validate='m:1')
+                      left_on='Classe_Custo', right_on='Conta', how='left')
         del df_contas 
         gc.collect()  
         
         df = df.merge(df_cc[['CC', 'Descricao CC', 'VP', 'Diretoria', 'Local', 'Localidade', 'Empresa', 'Responsável']], 
-                      left_on='Centro_Custo', right_on='CC', how='left', validate='m:1')
+                      left_on='Centro_Custo', right_on='CC', how='left')
         del df_cc 
         gc.collect() 
         
-        df['Desc_Conta'] = df['Desc Conta'].astype(object).fillna("Sem Descrição") + " - " + df['Classe_Custo'].astype(object).fillna("000000")
-        df['P_L'] = df['Responsável'].astype(object).fillna("Não Informado") 
-        df['VP'] = df['VP'].astype(object).fillna("Não Informado")
-        df['Localidade'] = df['Localidade'].astype(object).fillna("Não Informado")
-        df['Pacote'] = df['Pacote'].astype(object).fillna("Não Informado")
-        df['Diretoria'] = df['Diretoria'].astype(object).fillna("Não Informado")
-        df['Centro_Custo'] = df['Descricao CC'].astype(object).fillna("Sem Descrição") + " (" + df['Centro_Custo'].astype(object).fillna("000") + ")"
+        # 🚀 RECONSTRUÇÃO COM FALLBACK: Se não achar no arquivo, ele mostra o código SAP original
+        df['Desc_Conta'] = df['Desc Conta'].fillna("Cod") + " - " + df['Classe_Custo'].fillna("000000")
+        df['P_L'] = df['Responsável'].fillna("Não Encontrado") 
+        df['VP'] = df['VP'].fillna("Não Encontrado")
+        df['Localidade'] = df['Localidade'].fillna("Não Encontrado")
+        df['Pacote'] = df['Pacote'].fillna("Não Encontrado")
+        df['Diretoria'] = df['Diretoria'].fillna("Não Encontrado")
+        df['Centro_Custo'] = df['Descricao CC'].fillna("CC") + " (" + df['Centro_Custo'].fillna("000") + ")"
         
         colunas_lixo = ['Classe_Custo', 'Conta', 'Desc Conta', 'CC', 'Descricao CC', 'Empresa', 'Local', 'Responsável']
         col_existentes = [c for c in colunas_lixo if c in df.columns]
