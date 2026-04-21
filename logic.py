@@ -129,26 +129,30 @@ def get_highlights_summary(df, ano_at, ano_ant):
     return summary
 
 # @st.cache_data(show_spinner=False)
+# @st.cache_data(show_spinner=False)
 def carregar_bases_apoio():
-    """Carrega os arquivos Parquet blindados contra o bug de mmap do WebAssembly."""
+    """Carrega os arquivos Parquet driblando a trava de versão do Pandas via PyArrow direto."""
     caminho_contas = encontrar_arquivo_local("dim_contas.parquet")
     caminho_cc = encontrar_arquivo_local("dim_centros_custo.parquet")
     
     try:
         df_contas, df_cc = None, None
+        import pyarrow.parquet as pq # 🚀 Importação direta (ignora a checagem do Pandas)
         
         if caminho_contas:
             with open(caminho_contas, "rb") as f:
-                # Mudamos o motor para 'fastparquet' para driblar o bloqueio de versão do Pandas na Web
-                df_contas = pd.read_parquet(io.BytesIO(f.read()), engine='fastparquet')
+                # Lê a tabela via PyArrow e converte nativamente para Pandas depois
+                tabela = pq.read_table(io.BytesIO(f.read()))
+                df_contas = tabela.to_pandas()
                 
         if caminho_cc:
             with open(caminho_cc, "rb") as f:
-                df_cc = pd.read_parquet(io.BytesIO(f.read()), engine='fastparquet')
+                tabela = pq.read_table(io.BytesIO(f.read()))
+                df_cc = tabela.to_pandas()
                 
         return df_contas, df_cc
     except Exception as e:
-        st.warning(f"⚠️ Erro ao carregar Parquets. Verifique os arquivos: {e}")
+        st.warning(f"⚠️ Erro ao carregar Parquets: {e}")
         return None, None
 
 # @st.cache_data(show_spinner="Otimizando base de dados...")
@@ -263,13 +267,28 @@ def load_and_process_base(files):
                 return msg_erro, None, None, None
 
             # =========================================================
-            # 4. LEITURA COMPLETA OTIMIZADA
+            # 4. LEITURA COMPLETA OTIMIZADA EM LOTES (Chunking)
             # =========================================================
             file_buffer.seek(0)
             colunas_para_ler = list(tradução_final.keys())
+            
             if f.name.endswith('.csv'):
-                # 🚀 Motor 'c' seguro
-                df_temp = pd.read_csv(file_buffer, usecols=colunas_para_ler, sep=sep_detectado, engine='c', encoding=encoding_tentativa)
+                # 🚀 Fatiamos o arquivo em lotes de 15.000 linhas.
+                # Isso impede o motor 'c' de exigir gigabytes de RAM de uma só vez na Web.
+                lista_pedacos = []
+                chunks = pd.read_csv(
+                    file_buffer, 
+                    usecols=colunas_para_ler, 
+                    sep=sep_detectado, 
+                    engine='c', 
+                    encoding=encoding_tentativa, 
+                    chunksize=15000
+                )
+                for pedaco in chunks:
+                    lista_pedacos.append(pedaco)
+                    
+                df_temp = pd.concat(lista_pedacos, ignore_index=True)
+                del lista_pedacos, chunks # Passa a vassoura na RAM imediatamente
             else:
                 df_temp = pd.read_excel(file_buffer, usecols=colunas_para_ler, engine='openpyxl')
 
