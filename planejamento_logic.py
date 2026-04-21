@@ -33,7 +33,7 @@ def process_all_accounts_format(files):
             f.seek(0)
             df_bruto = pd.read_csv(f, sep=';', encoding=enc_final, engine='c', header=None)
         else:
-            df_bruto = pd.read_excel(f, engine='openpyxl', header=None)
+            df_bruto = pd.read_excel(f, header=None)
             
         # =========================================================
         # DETETIVE DE CABEÇALHO (SCORE POR PALAVRAS-CHAVE)
