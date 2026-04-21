@@ -128,7 +128,7 @@ def get_highlights_summary(df, ano_at, ano_ant):
         
     return summary
 
-# @st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False)
 def carregar_bases_apoio():
     """Carrega as bases blindadas, dispara o Alarme se sumirem e economiza memória."""
     caminho_contas = encontrar_arquivo_local("dim_contas.csv.gz")
@@ -165,7 +165,7 @@ def carregar_bases_apoio():
         st.warning(f"⚠️ Erro ao abrir as bases de apoio: {e}")
         return None, None
 
-# @st.cache_data(show_spinner="Otimizando base de dados...")
+@st.cache_data(show_spinner="Otimizando base de dados...")
 def load_and_process_base(files):
     dfs = []
     from utils import mapeamento
