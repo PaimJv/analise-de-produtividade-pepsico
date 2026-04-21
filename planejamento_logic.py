@@ -208,147 +208,152 @@ def format_brl(val):
     return f"{prefix}{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 def render_planejamento_ui(df_nivel, dims, profundidade=0, filtro_contexto=None):
-    """Função Wrapper com Renderização em Blocos (Proteção contra Estouro de HTML)"""
+    """Função de renderização otimizada com Pré-cálculo e Batching."""
     foco_analise = st.session_state.get('radio_foco_ia', 'Análise 360° (Ambos)')
     
-    # 1. Cria os espaços reservados no topo da tela
     msg_topo = st.empty()
     aviso_texto = st.empty()
     barra_progresso = st.progress(0)
     
-    with st.spinner("Construindo painéis gerenciais em blocos independentes..."):
-        # 2. Chama o motor com o parâmetro 'render_direct=True'
-        teve_dados = _gerar_html_recursivo(
-            df_nivel, dims, 0, {}, foco_analise, aviso_texto, barra_progresso, render_direct=True
+    with st.spinner("Otimizando tabelas e renderizando visão executiva..."):
+        # 🚀 PASSO 1: Pré-calcular todos os agrupamentos necessários para as dimensões selecionadas
+        # Isso evita que o Python filtre o DataFrame repetidamente dentro dos loops.
+        with st.expander("Detalhamento do processamento", expanded=False):
+            st.write("Agrupando dimensões...")
+            
+        # Criamos um dicionário de busca rápida (Lookup Table)
+        # Agrupamos por todas as dimensões de uma vez para acesso instantâneo
+        lookup_df = df_nivel.groupby(dims + ['Tipo_Dado'], observed=True, as_index=False)[
+            ['Valor_YTD', 'Valor_BOY', 'Valor_FY']
+        ].sum()
+        
+        # 🚀 PASSO 2: Motor de renderização em lotes
+        teve_dados = _gerar_html_alta_performance(
+            lookup_df, dims, 0, {}, foco_analise, aviso_texto, barra_progresso
         )
         
-    # 3. Limpa a barra de progresso da tela
     aviso_texto.empty()
     barra_progresso.empty()
     
-    # 4. Exibe a mensagem no topo reservado
     if not teve_dados:
-        msg_topo.info(f"Nenhum registro encontrado com o critério: **{foco_analise}**")
+        msg_topo.info(f"Nenhum registro encontrado para: **{foco_analise}**")
     else:
-        msg_topo.success("✅ Relatório renderizado por completo!")
+        msg_topo.success("✅ Relatório gerado com sucesso!")
 
 
-def _gerar_html_recursivo(df_nivel, dims, profundidade, filtro_contexto, foco_analise, text_ui=None, progress_ui=None, render_direct=False):
-    """Motor blindado que renderiza bloco a bloco na tela para evitar cortes de HTML."""
+def _gerar_html_alta_performance(df_lookup, dims, profundidade, filtro_contexto, foco_analise, text_ui=None, progress_ui=None):
+    """Motor que utiliza tabelas de busca para renderização instantânea."""
     if not dims or profundidade >= len(dims):
         return ""
 
     col = dims[profundidade]
     
-    # Força a conversão de ambos os lados para texto puro antes de filtrar
+    # Aplica os filtros acumulados no dataframe de lookup
+    df_temp = df_lookup.copy()
     if filtro_contexto:
         for c, v in filtro_contexto.items():
-            df_nivel = df_nivel[df_nivel[c].astype(str) == str(v)]
+            df_temp = df_temp[df_temp[c].astype(str) == str(v)]
 
-    itens = sorted(df_nivel[col].dropna().unique().astype(str).tolist())
+    itens = sorted(df_temp[col].unique().astype(str).tolist())
     total_itens = len(itens)
-    html_completo = ""
+    
+    # Limite de segurança visual
+    if total_itens > 150 and profundidade == 0:
+        st.warning(f"⚠️ Volume alto detectado ({total_itens} itens). O relatório será renderizado em blocos.")
+
     encontrou_dados = False
-
-    # Máscaras Globais
-    mask_pxxf = df_nivel['Tipo_Dado'].astype(str).str.contains(r'P\d{2}F', na=False)
-    mask_aop = df_nivel['Tipo_Dado'] == 'AOP26'
-    mask_2025 = df_nivel['Tipo_Dado'] == '2025'
-
+    batch_html = []
+    
     for idx, item in enumerate(itens):
-        
-        # 🔄 MOTOR DE ANIMAÇÃO 
         if profundidade == 0 and text_ui is not None and progress_ui is not None:
             porcentagem = int(((idx + 1) / total_itens) * 100)
-            text_ui.info(f"⏳ Processando e renderizando: **{item}** ({idx + 1}/{total_itens})")
+            text_ui.info(f"🚀 Renderizando {idx + 1}/{total_itens}: **{item}**")
             progress_ui.progress(porcentagem)
 
-        mask_item = (df_nivel[col].astype(str) == item)
+        # Filtra o lookup apenas para o item atual
+        df_item = df_temp[df_temp[col].astype(str) == item]
         
-        df_pxxf = df_nivel[mask_item & mask_pxxf]
-        df_aop = df_nivel[mask_item & mask_aop]
-        df_2025 = df_nivel[mask_item & mask_2025]
+        # Cálculos de valores usando o Tipo_Dado pré-agrupado
+        def get_sum(mask_type, col_val):
+            return df_item[df_item['Tipo_Dado'].astype(str).str.contains(mask_type, na=False)][col_val].sum()
+
+        ytd_real = get_sum(r'P\d{2}F', 'Valor_YTD')
+        ytd_aop  = get_sum('AOP26', 'Valor_YTD')
+        ytd_2025 = get_sum('2025', 'Valor_YTD')
         
-        ytd_real = df_pxxf['Valor_YTD'].sum()
-        ytd_aop = df_aop['Valor_YTD'].sum()
-        ytd_2025 = df_2025['Valor_YTD'].sum()
+        boy_proj = get_sum(r'P\d{2}F', 'Valor_BOY')
+        boy_2025 = get_sum('2025', 'Valor_BOY')
         
-        boy_proj = df_pxxf['Valor_BOY'].sum()
-        boy_2025 = df_2025['Valor_BOY'].sum()
-        
-        fy_total = df_pxxf['Valor_FY'].sum()
-        fy_2025 = df_2025['Valor_FY'].sum()
+        fy_total = get_sum(r'P\d{2}F', 'Valor_FY')
+        fy_2025  = get_sum('2025', 'Valor_FY')
         
         var_2025 = ytd_real - ytd_2025
         
-        # Filtro de negócio
-        if foco_analise == "Apenas Savings (Eficiência)" and round(var_2025, 2) > 0:
-            continue
-        elif foco_analise == "Apenas Desvios (Gastos)" and round(var_2025, 2) <= 0:
-            continue
+        if foco_analise == "Apenas Savings (Eficiência)" and var_2025 > 0: continue
+        if foco_analise == "Apenas Desvios (Gastos)" and var_2025 <= 0: continue
 
         encontrou_dados = True
-
-        # Lógica de Cores da Variação
-        cor_var = '#d32f2f' if round(var_2025, 2) > 0 else '#2e7d32' if round(var_2025, 2) < 0 else '#666'
-        sinal_var = '+' if round(var_2025, 2) > 0 else ''
-
-        label_dim = LABELS_MAP.get(col, col)
+        cor_var = '#d32f2f' if var_2025 > 0 else '#2e7d32' if var_2025 < 0 else '#666'
+        sinal_var = '+' if var_2025 > 0 else ''
         label_pref = '📌' if profundidade == 0 else '➥'
         
-        # Componente Visual de Card
-        def card_html(titulo, valor, var_valor=None):
-            var_html = ""
-            if var_valor is not None:
-                c_var = '#d32f2f' if round(var_valor, 2) > 0 else '#2e7d32' if round(var_valor, 2) < 0 else '#666'
-                s_var = '+' if round(var_valor, 2) > 0 else ''
-                var_html = f"<div style='font-size: 13px; font-weight: 600; color: {c_var}; margin-top: 6px;'>{s_var}{format_brl(var_valor)} (Variação)</div>"
-            
-            return f"<div style='flex: 1; min-width: 180px; padding: 12px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;'><div style='font-size: 13px; color: #666; font-weight: 600;'>{titulo}</div><div style='font-size: 20px; font-weight: bold; color: #111; margin-top: 4px;'>{format_brl(valor)}</div>{var_html}</div>"
-
-        # Recursão (Filhos não renderizam direto, devolvem o texto para o pai)
+        # Sub-renderização (Recursiva)
         novo_contexto = (filtro_contexto or {}).copy()
         novo_contexto[col] = item
-        html_filhos = _gerar_html_recursivo(df_nivel, dims, profundidade + 1, novo_contexto, foco_analise, None, None, render_direct=False)
+        html_filhos = _gerar_html_alta_performance(df_temp, dims, profundidade + 1, novo_contexto, foco_analise)
 
-        # Montagem do HTML Pai
+        # 🚀 HTML resumido colado em UMA LINHA (Evita a quebra das caixas do Streamlit)
         html_item = (
-            f"<details style='margin-bottom: 10px; border: 1px solid #d1d5db; border-radius: 8px; background-color: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,0.05);'>"
-            f"<summary style='padding: 14px; font-weight: bold; cursor: pointer; background-color: #fcfcfc; border-bottom: 1px solid #eee; font-family: sans-serif; font-size: 15px;'>"
-            f"{label_pref} {item} <span style='font-weight: normal; color: #555; margin-left: 10px;'>| YTD Real: {format_brl(ytd_real)} | Variação: <span style='color: {cor_var}; font-weight: bold;'>{sinal_var}{format_brl(var_2025)}</span></span>"
+            f"<details style='margin-bottom: 8px; border: 1px solid #d1d5db; border-radius: 8px; background-color: #ffffff;'>"
+            f"<summary style='padding: 12px; font-weight: bold; cursor: pointer; font-family: sans-serif; font-size: 14px;'>"
+            f"{label_pref} {item} <span style='font-weight: normal; color: #555; margin-left: 10px;'>"
+            f"| YTD: {format_brl(ytd_real)} | Var: <span style='color: {cor_var};'>{sinal_var}{format_brl(var_2025)}</span></span>"
             f"</summary>"
-            f"<div style='padding: 20px; font-family: sans-serif;'>"
-            f"<div style='margin-bottom: 10px; font-size: 18px; font-weight: bold; color: #333; border-bottom: 2px solid #eee; padding-bottom: 5px;'>📊 Visão 1: Análise YTD</div>"
-            f"<div style='display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 25px;'>"
-            f"{card_html('YTD Real', ytd_real)}"
-            f"{card_html('Meta (AOP)', ytd_aop, ytd_real - ytd_aop)}"
-            f"{card_html('Vs Ano Ant. (2025)', ytd_2025, var_2025)}"
+            f"<div style='padding: 15px; border-top: 1px solid #eee;'>"
+            
+            # ÚNICO CONTAINER FLEX PARA TODOS OS CARDS (O segredo para não quebrar o HTML)
+            f"<div style='display: flex; gap: 10px; flex-wrap: wrap;'>"
+            
+            # --- CARDS YTD ---
+            f"{_get_card_mini('YTD Real', ytd_real)}"
+            f"{_get_card_mini('Vs Meta (YTD)', ytd_real - ytd_aop, is_var=True)}"
+            f"{_get_card_mini('Vs 2025 (YTD)', var_2025, is_var=True)}"
+            
+            # --- CARDS BOY ---
+            f"{_get_card_mini('BOY Projetado', boy_proj)}"
+            f"{_get_card_mini('Vs 2025 (BOY)', boy_proj - boy_2025, is_var=True)}"
+            
+            # --- CARDS FY ---
+            f"{_get_card_mini('FY Estimado', fy_total)}"
+            f"{_get_card_mini('Vs 2025 (FY)', fy_total - fy_2025, is_var=True)}"
+            
             f"</div>"
-            f"<div style='margin-bottom: 10px; font-size: 18px; font-weight: bold; color: #333; border-bottom: 2px solid #eee; padding-bottom: 5px;'>🔮 Visão 2: Projeção Resto do Ano (BOY)</div>"
-            f"<div style='display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 25px;'>"
-            f"{card_html('BOY Projetado', boy_proj)}"
-            f"{card_html('BOY Ano Ant. (2025)', boy_2025, boy_proj - boy_2025)}"
-            f"</div>"
-            f"<div style='margin-bottom: 10px; font-size: 18px; font-weight: bold; color: #333; border-bottom: 2px solid #eee; padding-bottom: 5px;'>🎯 Visão 3: Ano Completo (FY)</div>"
-            f"<div style='display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 20px;'>"
-            f"{card_html('FY Estimado (YTD + BOY)', fy_total)}"
-            f"{card_html('FY Ano Ant. (2025)', fy_2025, fy_total - fy_2025)}"
-            f"</div>"
-            f"<div style='margin-top: 15px; padding-left: 20px; border-left: 3px solid #e5e7eb;'>"
+            
+            f"<div style='margin-top: 10px; padding-left: 15px; border-left: 2px solid #eee;'>"
             f"{html_filhos}"
             f"</div>"
+            
             f"</div>"
             f"</details>"
         )
         
-        # 🚀 O PULO DO GATO: Se for o nível mestre, desenha direto na tela!
-        if render_direct:
-            st.markdown(html_item, unsafe_allow_html=True)
-        else:
-            html_completo += html_item
+        batch_html.append(html_item)
+        
+        # Renderiza a cada 10 itens no nível mestre para manter a fluidez e burlar o limite
+        if profundidade == 0 and len(batch_html) >= 10:
+            st.markdown("".join(batch_html), unsafe_allow_html=True)
+            batch_html = []
 
-    # Retorna booleano para o nível mestre, e HTML para os filhos
-    if render_direct:
+    # Renderiza o restante do lote ao final do loop
+    if profundidade == 0 and batch_html:
+        st.markdown("".join(batch_html), unsafe_allow_html=True)
         return encontrou_dados
     
-    return html_completo
+    return "".join(batch_html)
+
+def _get_card_mini(titulo, valor, is_var=False):
+    """Gera um card HTML menor numa linha só para economizar espaço e processamento."""
+    cor = "#111"
+    if is_var:
+        cor = '#d32f2f' if valor > 0 else '#2e7d32' if valor < 0 else '#666'
+    return f"<div style='flex: 1; min-width: 140px; padding: 8px; background-color: #fcfcfc; border: 1px solid #eee; border-radius: 5px;'><div style='font-size: 11px; color: #777;'>{titulo}</div><div style='font-size: 14px; font-weight: bold; color: {cor};'>{format_brl(valor)}</div></div>"
