@@ -34,7 +34,7 @@ def process_all_accounts_format(files):
                     continue
             
             file_buffer.seek(0)
-            df_bruto = pd.read_csv(file_buffer, sep=';', encoding=enc_final, engine='c', header=None)
+            df_bruto = pd.read_csv(file_buffer, sep=';', encoding=enc_final, engine='python', header=None)
         else:
             df_bruto = pd.read_excel(file_buffer, engine='openpyxl', header=None)
             

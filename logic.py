@@ -256,7 +256,7 @@ def load_and_process_base(files):
             file_buffer.seek(0)
             colunas_para_ler = list(tradução_final.keys())
             if f.name.endswith('.csv'):
-                df_temp = pd.read_csv(file_buffer, usecols=colunas_para_ler, sep=sep_detectado, engine='c', encoding=encoding_tentativa, low_memory=False)
+                df_temp = pd.read_csv(file_buffer, usecols=colunas_para_ler, sep=sep_detectado, engine='python', encoding=encoding_tentativa)
             else:
                 df_temp = pd.read_excel(file_buffer, usecols=colunas_para_ler, engine='openpyxl')
 
