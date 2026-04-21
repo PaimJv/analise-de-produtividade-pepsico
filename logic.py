@@ -130,32 +130,29 @@ def get_highlights_summary(df, ano_at, ano_ant):
 
 # @st.cache_data(show_spinner=False)
 def carregar_bases_apoio():
-    """Carrega as bases de dimensão em CSV GZIP forçando os códigos como String."""
+    """Carrega as bases em CSV GZIP e ALERTA na tela se elas não existirem."""
     caminho_contas = encontrar_arquivo_local("dim_contas.csv.gz")
     caminho_cc = encontrar_arquivo_local("dim_centros_custo.csv.gz")
     
+    # 🚨 O ALARME: Se o navegador não baixou os arquivos, travamos aqui e avisamos!
+    if not caminho_contas or not caminho_cc:
+        st.error("🚨 Arquivos auxiliares ('dim_contas.csv.gz' ou 'dim_centros_custo.csv.gz') NÃO foram encontrados na memória do navegador! O cruzamento foi ignorado. Verifique se eles estão no GitHub e com o nome idêntico no index.html.")
+        return None, None
+        
     try:
         df_contas, df_cc = None, None
         import io
         
-        if caminho_contas:
-            with open(caminho_contas, "rb") as f:
-                # O parâmetro dtype={'Conta': str} impede que o código perca zeros à esquerda
-                df_contas = pd.read_csv(io.BytesIO(f.read()), sep=';', encoding='utf-8-sig', 
-                                       compression='gzip', low_memory=False, 
-                                       dtype={'Conta': str, 'CC': str}) # Força texto nas chaves
-                
-        if caminho_cc:
-            with open(caminho_cc, "rb") as f:
-                df_cc = pd.read_csv(io.BytesIO(f.read()), sep=';', encoding='utf-8-sig', 
-                                    compression='gzip', low_memory=False, 
-                                    dtype={'CC': str, 'Conta': str})
-                
+        with open(caminho_contas, "rb") as f:
+            df_contas = pd.read_csv(io.BytesIO(f.read()), sep=';', encoding='utf-8-sig', compression='gzip', low_memory=False, dtype={'Conta': str})
+            
+        with open(caminho_cc, "rb") as f:
+            df_cc = pd.read_csv(io.BytesIO(f.read()), sep=';', encoding='utf-8-sig', compression='gzip', low_memory=False, dtype={'CC': str})
+            
         return df_contas, df_cc
     except Exception as e:
-        st.warning(f"⚠️ Erro ao carregar as bases de apoio: {e}")
+        st.warning(f"⚠️ Erro ao carregar as bases de apoio compactadas: {e}")
         return None, None
-
 
 # @st.cache_data(show_spinner="Otimizando base de dados...")
 def load_and_process_base(files):
@@ -343,16 +340,16 @@ def load_and_process_base(files):
     
     if df_contas is not None and df_cc is not None:
         # 1. Blindagem Absoluta: Forçar texto e cortar qualquer casa decimal indesejada
-        df_contas['Conta'] = df_contas['Conta'].astype(str).str.split('.').str[0].str.strip()
-        df_cc['CC'] = df_cc['CC'].astype(str).str.split('.').str[0].str.strip()
+        df_contas['Conta'] = df_contas['Conta'].astype(str).str.split('.').str[0].str.strip().str.lstrip('0').str.upper()
+        df_cc['CC'] = df_cc['CC'].astype(str).str.split('.').str[0].str.strip().str.lstrip('0').str.upper()
         
         if 'Classe_Custo' in df.columns:
-            df['Classe_Custo'] = df['Classe_Custo'].astype(str).str.split('.').str[0].str.strip()
+            df['Classe_Custo'] = df['Classe_Custo'].astype(str).str.split('.').str[0].str.strip().str.lstrip('0').str.upper()
         else:
             df['Classe_Custo'] = "000000"
             
         if 'Centro_Custo' in df.columns:
-            df['Centro_Custo'] = df['Centro_Custo'].astype(str).str.split('.').str[0].str.strip()
+            df['Centro_Custo'] = df['Centro_Custo'].astype(str).str.split('.').str[0].str.strip().str.lstrip('0').str.upper()
         else:
             df['Centro_Custo'] = "CC_INDEFINIDO"
         
