@@ -128,12 +128,12 @@ def get_highlights_summary(df, ano_at, ano_ant):
         
     return summary
 
-# @st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False)
 def carregar_bases_apoio():
-    """Carrega as bases em formato Pickle compactado (GZIP), 
-    mantendo o arquivo pequeno (Parquet-like) e compatível com a Web."""
-    caminho_contas = encontrar_arquivo_local("dim_contas.pkl.gz")
-    caminho_cc = encontrar_arquivo_local("dim_centros_custo.pkl.gz")
+    """Carrega as bases de dimensão em CSV GZIP. 
+    Leve como Parquet, universal como texto e sem conflitos de versão!"""
+    caminho_contas = encontrar_arquivo_local("dim_contas.csv.gz")
+    caminho_cc = encontrar_arquivo_local("dim_centros_custo.csv.gz")
     
     try:
         df_contas, df_cc = None, None
@@ -141,12 +141,13 @@ def carregar_bases_apoio():
         
         if caminho_contas:
             with open(caminho_contas, "rb") as f:
-                # Lemos o arquivo e avisamos o Pandas para descompactar o GZIP
-                df_contas = pd.read_pickle(io.BytesIO(f.read()), compression='gzip')
+                # 🚀 O segredo está aqui: pd.read_csv (NÃO read_pickle)
+                df_contas = pd.read_csv(io.BytesIO(f.read()), sep=';', encoding='utf-8-sig', compression='gzip', low_memory=False)
                 
         if caminho_cc:
             with open(caminho_cc, "rb") as f:
-                df_cc = pd.read_pickle(io.BytesIO(f.read()), compression='gzip')
+                # 🚀 E aqui também: pd.read_csv
+                df_cc = pd.read_csv(io.BytesIO(f.read()), sep=';', encoding='utf-8-sig', compression='gzip', low_memory=False)
                 
         return df_contas, df_cc
     except Exception as e:
