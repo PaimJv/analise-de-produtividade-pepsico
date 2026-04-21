@@ -16,15 +16,16 @@
           requirements: ["streamlit", "pandas", "openpyxl", "xlsxwriter", "pyarrow", "fastparquet", "plotly"],
           entrypoint: "main.py",
           files: {
-            "main.py": { url: "./main.py?v=22" },
-            "logic.py": { url: "./logic.py?v=22" },
-            "planejamento_logic.py": { url: "./planejamento_logic.py?v=22" },
-            "utils.py": { url: "./utils.py?v=22" },
-            "referencia_colunas.json": { url: "./referencia_colunas.json?v=22" },
-            // 🚨 AQUI ESTÁ O SEGREDO:
-            "dim_contas.csv.gz": { url: "./dim_contas.csv.gz?v=22" },
-            "dim_centros_custo.csv.gz": { url: "./dim_centros_custo.csv.gz?v=22" }
-        }
+            "main.py": { url: "./main.py" },
+            "sidebar.py": { url: "./sidebar.py" },
+            "components.py": { url: "./components.py" },
+            "logic.py": { url: "./logic.py?" },
+            "planejamento_logic.py": { url: "./planejamento_logic.py" },
+            "utils.py": { url: "./utils.py" },
+            "referencia_colunas.json": { url: "./referencia_colunas.json" },
+            "dim_contas.csv.gz": { url: "./dim_contas.csv.gz" },
+            "dim_centros_custo.csv.gz": { url: "./dim_centros_custo.csv.gz" }
+          }
         },
         document.getElementById("root")
       );
