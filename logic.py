@@ -142,7 +142,7 @@ def carregar_bases_apoio():
         st.warning(f"⚠️ Erro ao carregar Parquets. Verifique os arquivos: {e}")
         return None, None
 
-@st.cache_data(show_spinner="Otimizando base de dados...")
+# @st.cache_data(show_spinner="Otimizando base de dados...")
 def load_and_process_base(files):
     dfs = []
     from utils import mapeamento
