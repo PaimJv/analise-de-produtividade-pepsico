@@ -183,7 +183,7 @@ def load_and_process_base(files):
                 
             else:
                 # Tratamento para Excel (xlsx, xls)
-                df_header = pd.read_excel(f, engine='calamine', nrows=100)
+                df_header = pd.read_excel(f, engine='openpyxl', nrows=100)
                 sep_detectado = None
                 encoding_tentativa = None
 
@@ -268,7 +268,7 @@ def load_and_process_base(files):
             if f.name.endswith('.csv'):
                 df_temp = pd.read_csv(f, usecols=colunas_para_ler, sep=sep_detectado, engine='c', encoding=encoding_tentativa, low_memory=False)
             else:
-                df_temp = pd.read_excel(f, usecols=colunas_para_ler, engine='calamine')
+                df_temp = pd.read_excel(f, usecols=colunas_para_ler, engine='openpyxl')
 
             df_temp.rename(columns=tradução_final, inplace=True)
 
