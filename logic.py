@@ -151,28 +151,31 @@ def load_and_process_base(files):
 
     for f in files:
         try: 
-            # 🚀 ESCUDO DE MEMÓRIA
-            file_buffer = io.BytesIO(f.read())
+            # 🚀 ESCUDO DE MEMÓRIA (Nativo do Streamlit)
+            file_buffer = io.BytesIO(f.getvalue())
             
             if f.name.endswith('.csv'):
                 sample_bytes = file_buffer.read(10000)
                 file_buffer.seek(0)
                 
-                try:
-                    sample_bytes.decode('utf-8-sig')
-                    encoding_tentativa = 'utf-8-sig'
-                except UnicodeDecodeError:
-                    encoding_tentativa = 'cp1252'
+                # 🚀 Detetive de encoding imbatível (igual ao planejamento)
+                encodings_teste = ['utf-8-sig', 'cp1252', 'latin-1', 'utf-16le']
+                encoding_tentativa = 'utf-8-sig'
                 
-                try:
-                    sample_text = sample_bytes.decode(encoding_tentativa, errors='ignore')
-                    dialect = csv.Sniffer().sniff(sample_text, delimiters=',;\t|')
-                    sep_detectado = dialect.delimiter
-                except:
-                    sep_detectado = ';' 
-
+                for enc in encodings_teste:
+                    try:
+                        sample_bytes.decode(enc)
+                        encoding_tentativa = enc
+                        break 
+                    except UnicodeDecodeError:
+                        continue
+                
+                # Forçamos o padrão SAP idêntico ao que funcionou no planejamento
+                sep_detectado = ';' 
+                
                 file_buffer.seek(0)
-                df_header = pd.read_csv(file_buffer, sep=sep_detectado, engine='python', encoding=encoding_tentativa, nrows=100)
+                # 🚀 Volta para o motor 'c' super-rápido
+                df_header = pd.read_csv(file_buffer, sep=sep_detectado, engine='c', encoding=encoding_tentativa, nrows=100)
             else:
                 df_header = pd.read_excel(file_buffer, engine='openpyxl', nrows=100)
                 sep_detectado = None
@@ -256,7 +259,8 @@ def load_and_process_base(files):
             file_buffer.seek(0)
             colunas_para_ler = list(tradução_final.keys())
             if f.name.endswith('.csv'):
-                df_temp = pd.read_csv(file_buffer, usecols=colunas_para_ler, sep=sep_detectado, engine='python', encoding=encoding_tentativa)
+                # 🚀 Motor 'c' com low_memory=False para máxima performance
+                df_temp = pd.read_csv(file_buffer, usecols=colunas_para_ler, sep=sep_detectado, engine='c', encoding=encoding_tentativa, low_memory=False)
             else:
                 df_temp = pd.read_excel(file_buffer, usecols=colunas_para_ler, engine='openpyxl')
 
