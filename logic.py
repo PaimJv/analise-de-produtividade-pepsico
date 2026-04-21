@@ -130,13 +130,22 @@ def get_highlights_summary(df, ano_at, ano_ant):
 
 # @st.cache_data(show_spinner=False)
 def carregar_bases_apoio():
-    """Carrega os arquivos Parquet garantindo que o .exe não se perca."""
+    """Carrega os arquivos Parquet blindados contra o bug de mmap do WebAssembly."""
     caminho_contas = encontrar_arquivo_local("dim_contas.parquet")
     caminho_cc = encontrar_arquivo_local("dim_centros_custo.parquet")
     
     try:
-        df_contas = pd.read_parquet(caminho_contas) if caminho_contas else None
-        df_cc = pd.read_parquet(caminho_cc) if caminho_cc else None
+        df_contas, df_cc = None, None
+        
+        if caminho_contas:
+            with open(caminho_contas, "rb") as f:
+                # O Escudo BytesIO impede o Pyarrow de travar o navegador
+                df_contas = pd.read_parquet(io.BytesIO(f.read()), engine='pyarrow')
+                
+        if caminho_cc:
+            with open(caminho_cc, "rb") as f:
+                df_cc = pd.read_parquet(io.BytesIO(f.read()), engine='pyarrow')
+                
         return df_contas, df_cc
     except Exception as e:
         st.warning(f"⚠️ Erro ao carregar Parquets. Verifique os arquivos: {e}")
@@ -259,8 +268,8 @@ def load_and_process_base(files):
             file_buffer.seek(0)
             colunas_para_ler = list(tradução_final.keys())
             if f.name.endswith('.csv'):
-                # 🚀 Motor 'c' com low_memory=False para máxima performance
-                df_temp = pd.read_csv(file_buffer, usecols=colunas_para_ler, sep=sep_detectado, engine='c', encoding=encoding_tentativa, low_memory=False)
+                # 🚀 Motor 'c' seguro
+                df_temp = pd.read_csv(file_buffer, usecols=colunas_para_ler, sep=sep_detectado, engine='c', encoding=encoding_tentativa)
             else:
                 df_temp = pd.read_excel(file_buffer, usecols=colunas_para_ler, engine='openpyxl')
 
