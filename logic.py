@@ -139,12 +139,12 @@ def carregar_bases_apoio():
         
         if caminho_contas:
             with open(caminho_contas, "rb") as f:
-                # O Escudo BytesIO impede o Pyarrow de travar o navegador
-                df_contas = pd.read_parquet(io.BytesIO(f.read()), engine='pyarrow')
+                # Mudamos o motor para 'fastparquet' para driblar o bloqueio de versão do Pandas na Web
+                df_contas = pd.read_parquet(io.BytesIO(f.read()), engine='fastparquet')
                 
         if caminho_cc:
             with open(caminho_cc, "rb") as f:
-                df_cc = pd.read_parquet(io.BytesIO(f.read()), engine='pyarrow')
+                df_cc = pd.read_parquet(io.BytesIO(f.read()), engine='fastparquet')
                 
         return df_contas, df_cc
     except Exception as e:
