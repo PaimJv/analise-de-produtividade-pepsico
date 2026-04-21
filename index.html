@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>Análise Financeira YoY</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@stlite/mountable@0.31.1/build/stlite.css" />
+  </head>
+  <body>
+    <div id="root" style="height: 100vh;"></div>
+    <script src="https://cdn.jsdelivr.net/npm/@stlite/mountable@0.31.1/build/stlite.js"></script>
+    <script>
+      stlite.mount(
+        {
+          // 1. Bibliotecas que o navegador precisa instalar na memória temporária
+          requirements: ["streamlit", "pandas", "openpyxl", "xlsxwriter", "pyarrow", "fastparquet"],
+          
+          // 2. O arquivo principal que dispara o aplicativo
+          entrypoint: "main.py",
+          
+          // 3. Montagem do Disco Virtual: Mapeamos seus arquivos do GitHub para o navegador ler
+          files: {
+            "main.py": { url: "main.py" },
+            "logic.py": { url: "logic.py" },
+            "planejamento_logic.py": { url: "planejamento_logic.py" },
+            "utils.py": { url: "utils.py" },
+            "referencia_colunas.json": { url: "referencia_colunas.json" },
+            "dim_contas.parquet": { url: "dim_contas.parquet" },
+            "dim_centros_custo.parquet": { url: "dim_centros_custo.parquet" }
+          }
+        },
+        document.getElementById("root")
+      );
+    </script>
+  </body>
+</html>
