@@ -129,30 +129,28 @@ def get_highlights_summary(df, ano_at, ano_ant):
     return summary
 
 # @st.cache_data(show_spinner=False)
-# @st.cache_data(show_spinner=False)
 def carregar_bases_apoio():
-    """Carrega os arquivos Parquet driblando a trava de versão do Pandas via PyArrow direto."""
-    caminho_contas = encontrar_arquivo_local("dim_contas.parquet")
-    caminho_cc = encontrar_arquivo_local("dim_centros_custo.parquet")
+    """Carrega as bases em formato Pickle compactado (GZIP), 
+    mantendo o arquivo pequeno (Parquet-like) e compatível com a Web."""
+    caminho_contas = encontrar_arquivo_local("dim_contas.pkl.gz")
+    caminho_cc = encontrar_arquivo_local("dim_centros_custo.pkl.gz")
     
     try:
         df_contas, df_cc = None, None
-        import pyarrow.parquet as pq # 🚀 Importação direta (ignora a checagem do Pandas)
+        import io
         
         if caminho_contas:
             with open(caminho_contas, "rb") as f:
-                # Lê a tabela via PyArrow e converte nativamente para Pandas depois
-                tabela = pq.read_table(io.BytesIO(f.read()))
-                df_contas = tabela.to_pandas()
+                # Lemos o arquivo e avisamos o Pandas para descompactar o GZIP
+                df_contas = pd.read_pickle(io.BytesIO(f.read()), compression='gzip')
                 
         if caminho_cc:
             with open(caminho_cc, "rb") as f:
-                tabela = pq.read_table(io.BytesIO(f.read()))
-                df_cc = tabela.to_pandas()
+                df_cc = pd.read_pickle(io.BytesIO(f.read()), compression='gzip')
                 
         return df_contas, df_cc
     except Exception as e:
-        st.warning(f"⚠️ Erro ao carregar Parquets: {e}")
+        st.warning(f"⚠️ Erro ao carregar as bases de apoio compactadas: {e}")
         return None, None
 
 # @st.cache_data(show_spinner="Otimizando base de dados...")
