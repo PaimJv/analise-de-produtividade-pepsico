@@ -14,10 +14,15 @@ def process_all_accounts_format(files):
                   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
     agregadores_cols = ['YTD', 'BOY', 'FY']
     
+    import io # Certifique-se de que o io está importado
+
     for f in files:
+        # 🚀 ESCUDO DE MEMÓRIA (Cria um clone seguro do arquivo na memória RAM do navegador)
+        file_buffer = io.BytesIO(f.read())
+        
         if f.name.endswith('.csv'):
-            sample_bytes = f.read(10000)
-            f.seek(0)
+            sample_bytes = file_buffer.read(10000)
+            file_buffer.seek(0)
             
             encodings_teste = ['utf-8-sig', 'cp1252', 'latin-1', 'utf-16le']
             enc_final = 'utf-8-sig'
@@ -30,10 +35,10 @@ def process_all_accounts_format(files):
                 except UnicodeDecodeError:
                     continue
             
-            f.seek(0)
-            df_bruto = pd.read_csv(f, sep=';', encoding=enc_final, engine='c', header=None)
+            file_buffer.seek(0)
+            df_bruto = pd.read_csv(file_buffer, sep=';', encoding=enc_final, engine='c', header=None)
         else:
-            df_bruto = pd.read_excel(f, engine='openpyxl', header=None)
+            df_bruto = pd.read_excel(file_buffer, engine='openpyxl', header=None)
             
         # =========================================================
         # DETETIVE DE CABEÇALHO (SCORE POR PALAVRAS-CHAVE)

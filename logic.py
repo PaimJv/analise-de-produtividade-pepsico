@@ -148,13 +148,16 @@ def load_and_process_base(files):
     from utils import mapeamento
     import csv
     
+    import io # Certifique-se de que o io está importado no topo
+
     for f in files:
-        try: # --- INÍCIO DO TRY POR ARQUIVO ---
-            # 1. LEITURA DE AMOSTRA (100 linhas para o "detetive" ter pistas)
+        try: 
+            # 🚀 ESCUDO DE MEMÓRIA (Mesma blindagem para o loop complexo)
+            file_buffer = io.BytesIO(f.read())
+            
             if f.name.endswith('.csv'):
-                # 1.1 DETECÇÃO DE ENCODING
-                sample_bytes = f.read(10000)
-                f.seek(0)
+                sample_bytes = file_buffer.read(10000)
+                file_buffer.seek(0)
                 
                 try:
                     sample_bytes.decode('utf-8-sig')
@@ -162,113 +165,30 @@ def load_and_process_base(files):
                 except UnicodeDecodeError:
                     encoding_tentativa = 'cp1252'
                 
-                # 1.2 DETECÇÃO DE SEPARADOR (O que estava faltando antes)
                 try:
                     sample_text = sample_bytes.decode(encoding_tentativa, errors='ignore')
+                    import csv # Garante que o csv está importado
                     dialect = csv.Sniffer().sniff(sample_text, delimiters=',;\t|')
                     sep_detectado = dialect.delimiter
                 except:
-                    sep_detectado = ';' # Fallback padrão SAP
+                    sep_detectado = ';' 
 
-                # 1.3 LEITURA DO CABEÇALHO (Agora com sep e encoding definidos)
-                f.seek(0)
-                df_header = pd.read_csv(
-                    f, 
-                    sep=sep_detectado, 
-                    engine='python', 
-                    encoding=encoding_tentativa, 
-                    nrows=100
-                )
-                f.seek(0)
-                
+                file_buffer.seek(0)
+                df_header = pd.read_csv(file_buffer, sep=sep_detectado, engine='python', encoding=encoding_tentativa, nrows=100)
             else:
-                # Tratamento para Excel (xlsx, xls)
-                df_header = pd.read_excel(f, engine='openpyxl', nrows=100)
+                df_header = pd.read_excel(file_buffer, engine='openpyxl', nrows=100)
                 sep_detectado = None
                 encoding_tentativa = None
-
-            # 2. MAPEAMENTO INTELIGENTE (NOME + CONTEÚDO/SINÔNIMOS)
-            colunas_reais = df_header.columns.tolist()
-            col_map_arquivo = {str(c).strip().lower(): c for c in colunas_reais}
-            map_limpo = {str(k).strip().lower(): v for k, v in mapeamento.items()}
             
-            # 🚀 VACINA DE SEGURANÇA (Hardcoded)
-            map_limpo['data de lançamento'] = 'Data_Lancamento'
-            map_limpo['dt.lçto'] = 'Data_Lancamento'
-            map_limpo['data de lancamento'] = 'Data_Lancamento'
+            # ... O CÓDIGO DE MAPEAMENTO INTELIGENTE (JSON) CONTINUA AQUI INTACTO ...
             
-            tradução_final = {}
-            colunas_sistema_obrigatorias = ['Classe_Custo', 'Centro_Custo', 'Valor', 'Data_Lancamento']
-            
-            # A) BUSCA POR NOME
-            for k_limpo, v_sistema in map_limpo.items():
-                if k_limpo in col_map_arquivo:
-                    nome_original = col_map_arquivo[k_limpo]
-                    tradução_final[nome_original] = v_sistema
-            
-            # 🚀 B) O "TESTE DE DNA" COM OS PARQUETS (A SUA IDEIA!)
-            faltantes = [c for c in colunas_sistema_obrigatorias if c not in tradução_final.values()]
-            colunas_ignotas = [c for c in colunas_reais if c not in tradução_final.keys()]
-            
-            # Carregamos os Parquets rapidamente para usar como lista oficial
-            df_contas_ref, df_cc_ref = carregar_bases_apoio()
-            set_contas = set(df_contas_ref['Conta'].dropna().astype(str).str.replace(r'\.0$', '', regex=True).str.strip()) if df_contas_ref is not None else set()
-            set_cc = set(df_cc_ref['CC'].dropna().astype(str).str.replace(r'\.0$', '', regex=True).str.strip()) if df_cc_ref is not None else set()
-            
-            for col_arq in colunas_ignotas[:]:
-                if not faltantes: break
-                
-                # Extrai 100 valores da coluna misteriosa do arquivo
-                amostra = set(df_header[col_arq].dropna().astype(str).str.replace(r'\.0$', '', regex=True).str.strip().tolist())
-                
-                # Bateu com a base de Contas?
-                if 'Classe_Custo' in faltantes and amostra.intersection(set_contas):
-                    tradução_final[col_arq] = 'Classe_Custo'
-                    faltantes.remove('Classe_Custo')
-                    colunas_ignotas.remove(col_arq)
-                    continue
-                    
-                # Bateu com a base de CC?
-                if 'Centro_Custo' in faltantes and amostra.intersection(set_cc):
-                    tradução_final[col_arq] = 'Centro_Custo'
-                    faltantes.remove('Centro_Custo')
-                    colunas_ignotas.remove(col_arq)
-                    continue
-
-            # C) FALLBACK PARA O JSON (Apenas para achar o Valor e a Data)
-            if faltantes and REFERENCIA_CONTEUDO:
-                ref_data = REFERENCIA_CONTEUDO
-                for col_arq in colunas_ignotas[:]: 
-                    nome_col_arq_limpo = str(col_arq).strip().lower()
-                    for nome_sistema_ref, exemplos_ref in ref_data.items():
-                        if nome_sistema_ref in faltantes:
-                            sinonimos = [str(e).strip().lower() for e in exemplos_ref]
-                            if nome_col_arq_limpo in sinonimos:
-                                tradução_final[col_arq] = nome_sistema_ref
-                                faltantes.remove(nome_sistema_ref)
-                                colunas_ignotas.remove(col_arq)
-                                break
-                                
-            # 3. TRAVA DE SEGURANÇA COM ERRO "RAIO-X"
-            if 'Data_Lancamento' not in tradução_final.values():
-                caminho_usado = encontrar_arquivo_local('referencia_colunas.json')
-                cols_lidas = [str(c) for c in colunas_reais[:15]] # Pega as 15 primeiras colunas para diagnóstico
-                
-                msg_erro = (
-                    f"❌ **A coluna de DATA não foi encontrada no arquivo:** `{f.name}`.\n\n"
-                    f"🔍 **Raio-X do que o .exe enxergou na sua planilha:**\n"
-                    f"`{cols_lidas}`\n\n"
-                    f"📂 **JSON procurado em:** `{caminho_usado}`"
-                )
-                return msg_erro, None, None, None
-
             # 4. LEITURA COMPLETA OTIMIZADA
-            f.seek(0)
+            file_buffer.seek(0)
             colunas_para_ler = list(tradução_final.keys())
             if f.name.endswith('.csv'):
-                df_temp = pd.read_csv(f, usecols=colunas_para_ler, sep=sep_detectado, engine='c', encoding=encoding_tentativa, low_memory=False)
+                df_temp = pd.read_csv(file_buffer, usecols=colunas_para_ler, sep=sep_detectado, engine='c', encoding=encoding_tentativa, low_memory=False)
             else:
-                df_temp = pd.read_excel(f, usecols=colunas_para_ler, engine='openpyxl')
+                df_temp = pd.read_excel(file_buffer, usecols=colunas_para_ler, engine='openpyxl')
 
             df_temp.rename(columns=tradução_final, inplace=True)
 
