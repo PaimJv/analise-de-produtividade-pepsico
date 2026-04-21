@@ -130,28 +130,39 @@ def get_highlights_summary(df, ano_at, ano_ant):
 
 # @st.cache_data(show_spinner=False)
 def carregar_bases_apoio():
-    """Carrega as bases em CSV GZIP e ALERTA na tela se elas não existirem."""
+    """Carrega as bases blindadas, dispara o Alarme se sumirem e economiza memória."""
     caminho_contas = encontrar_arquivo_local("dim_contas.csv.gz")
     caminho_cc = encontrar_arquivo_local("dim_centros_custo.csv.gz")
     
-    # 🚨 O ALARME: Se o navegador não baixou os arquivos, travamos aqui e avisamos!
+    # 🚨 ALARME DE ARQUIVO INEXISTENTE
     if not caminho_contas or not caminho_cc:
-        st.error("🚨 Arquivos auxiliares ('dim_contas.csv.gz' ou 'dim_centros_custo.csv.gz') NÃO foram encontrados na memória do navegador! O cruzamento foi ignorado. Verifique se eles estão no GitHub e com o nome idêntico no index.html.")
+        st.error("🚨 ARQUIVOS AUXILIARES NÃO ENCONTRADOS! Verifique se os arquivos 'dim_contas.csv.gz' e 'dim_centros_custo.csv.gz' estão no GitHub e nomeados corretamente no index.html.")
         return None, None
         
     try:
         df_contas, df_cc = None, None
         import io
         
-        with open(caminho_contas, "rb") as f:
-            df_contas = pd.read_csv(io.BytesIO(f.read()), sep=';', encoding='utf-8-sig', compression='gzip', low_memory=False, dtype={'Conta': str})
-            
-        with open(caminho_cc, "rb") as f:
-            df_cc = pd.read_csv(io.BytesIO(f.read()), sep=';', encoding='utf-8-sig', compression='gzip', low_memory=False, dtype={'CC': str})
-            
+        # 🚀 MÁGICA DA MEMÓRIA: Lemos APENAS as colunas que vamos usar no merge!
+        cols_contas = ['Conta', 'Desc Conta', 'Pacote', 'P&L']
+        cols_cc = ['CC', 'Descricao CC', 'VP', 'Diretoria', 'Local', 'Localidade', 'Empresa', 'Responsável']
+        
+        if caminho_contas:
+            with open(caminho_contas, "rb") as f:
+                # Fatiamos em blocos e filtramos as colunas para não explodir a memória C
+                chunks_contas = pd.read_csv(io.BytesIO(f.read()), sep=';', encoding='utf-8-sig', compression='gzip', 
+                                            usecols=cols_contas, dtype={'Conta': str}, chunksize=15000)
+                df_contas = pd.concat(chunks_contas, ignore_index=True)
+                
+        if caminho_cc:
+            with open(caminho_cc, "rb") as f:
+                chunks_cc = pd.read_csv(io.BytesIO(f.read()), sep=';', encoding='utf-8-sig', compression='gzip', 
+                                        usecols=cols_cc, dtype={'CC': str}, chunksize=15000)
+                df_cc = pd.concat(chunks_cc, ignore_index=True)
+                
         return df_contas, df_cc
     except Exception as e:
-        st.warning(f"⚠️ Erro ao carregar as bases de apoio compactadas: {e}")
+        st.warning(f"⚠️ Erro ao abrir as bases de apoio: {e}")
         return None, None
 
 # @st.cache_data(show_spinner="Otimizando base de dados...")
