@@ -316,16 +316,16 @@ def _gerar_html_alta_performance(df_lookup, dims, profundidade, filtro_contexto,
             
             # --- CARDS YTD ---
             f"{_get_card_mini('YTD Real', ytd_real)}"
-            f"{_get_card_mini('Vs Meta (YTD)', ytd_real - ytd_aop, is_var=True)}"
-            f"{_get_card_mini('Vs 2025 (YTD)', var_2025, is_var=True)}"
+            f"{_get_card_mini('Meta AOP (YTD)', ytd_aop, var_valor=ytd_real - ytd_aop)}"
+            f"{_get_card_mini('Real 2025 (YTD)', ytd_2025, var_valor=var_2025)}"
             
             # --- CARDS BOY ---
             f"{_get_card_mini('BOY Projetado', boy_proj)}"
-            f"{_get_card_mini('Vs 2025 (BOY)', boy_proj - boy_2025, is_var=True)}"
+            f"{_get_card_mini('BOY 2025', boy_2025, var_valor=boy_proj - boy_2025)}"
             
             # --- CARDS FY ---
             f"{_get_card_mini('FY Estimado', fy_total)}"
-            f"{_get_card_mini('Vs 2025 (FY)', fy_total - fy_2025, is_var=True)}"
+            f"{_get_card_mini('FY 2025', fy_2025, var_valor=fy_total - fy_2025)}"
             
             f"</div>"
             
@@ -351,9 +351,16 @@ def _gerar_html_alta_performance(df_lookup, dims, profundidade, filtro_contexto,
     
     return "".join(batch_html)
 
-def _get_card_mini(titulo, valor, is_var=False):
-    """Gera um card HTML menor numa linha só para economizar espaço e processamento."""
-    cor = "#111"
-    if is_var:
-        cor = '#d32f2f' if valor > 0 else '#2e7d32' if valor < 0 else '#666'
-    return f"<div style='flex: 1; min-width: 140px; padding: 8px; background-color: #fcfcfc; border: 1px solid #eee; border-radius: 5px;'><div style='font-size: 11px; color: #777;'>{titulo}</div><div style='font-size: 14px; font-weight: bold; color: {cor};'>{format_brl(valor)}</div></div>"
+def _get_card_mini(titulo, valor, var_valor=None):
+    """Gera um card HTML com valor principal e variação opcional entre parênteses."""
+    valor_formatado = format_brl(valor)
+    
+    # Se houver valor de variação, formata com a cor e os parênteses
+    texto_extra = ""
+    if var_valor is not None:
+        cor_var = '#d32f2f' if var_valor > 0 else '#2e7d32' if var_valor < 0 else '#666'
+        sinal_var = '+' if var_valor > 0 else ''
+        # Adiciona os parênteses em um <div> para forçar a quebra de linha visual, com uma margem no topo
+        texto_extra = f"<div style='font-size: 11.5px; font-weight: 600; color: {cor_var}; margin-top: 2px;'>({sinal_var}{format_brl(var_valor)})</div>"
+
+    return f"<div style='flex: 1; min-width: 140px; padding: 8px; background-color: #fcfcfc; border: 1px solid #eee; border-radius: 5px;'><div style='font-size: 11px; color: #777;'>{titulo}</div><div style='font-size: 14px; font-weight: bold; color: #111;'>{valor_formatado}{texto_extra}</div></div>"
