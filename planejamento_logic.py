@@ -8,16 +8,14 @@ from utils import LABELS_MAP
 def process_all_accounts_format(files):
     """Lê o arquivo matricial, detecta o cabeçalho e mapeia colunas (Dimensões + Financeiras)."""
     dfs = []
+    import io
     
-    # Nomes padronizados (sem espaços para segurança)
     meses_cols = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 
                   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
     agregadores_cols = ['YTD', 'BOY', 'FY']
     
-    import io # Certifique-se de que o io está importado
-
     for f in files:
-        # 🚀 ESCUDO DE MEMÓRIA (Cria um clone seguro do arquivo na memória RAM do navegador)
+        # 🚀 ESCUDO DE MEMÓRIA PARA O MODO PLANEJAMENTO TAMBÉM
         file_buffer = io.BytesIO(f.read())
         
         if f.name.endswith('.csv'):
@@ -43,7 +41,6 @@ def process_all_accounts_format(files):
         # =========================================================
         # DETETIVE DE CABEÇALHO (SCORE POR PALAVRAS-CHAVE)
         # =========================================================
-        # Muito mais seguro que buscar células vazias (ignora sujeira do SAP)
         palavras_chave = ['janeiro', 'centro de custo', 'pacote', 'informação', 'ytd', 'fy', 'conta']
         
         linha_0_str = " ".join([str(x).lower() for x in df_bruto.iloc[0].tolist()])
@@ -52,7 +49,6 @@ def process_all_accounts_format(files):
         score_0 = sum(1 for p in palavras_chave if p in linha_0_str)
         score_1 = sum(1 for p in palavras_chave if p in linha_1_str)
         
-        # A linha que tiver mais palavras corporativas será eleita o cabeçalho
         if score_1 > score_0:
             df_bruto.columns = df_bruto.iloc[1].astype(str).str.strip()
             df = df_bruto.iloc[2:].reset_index(drop=True)
@@ -86,13 +82,11 @@ def process_all_accounts_format(files):
         tradução_final = {}
         colunas_sistema = list(set(map_estatico.values()))
         
-        # A) Busca Estática
         for k_limpo, v_sistema in map_estatico.items():
             if k_limpo in col_map_arquivo:
                 nome_original = col_map_arquivo[k_limpo]
                 tradução_final[nome_original] = v_sistema
                 
-        # B) Busca JSON
         faltantes = [c for c in colunas_sistema if c not in tradução_final.values()]
         
         if faltantes and os.path.exists('referencia_colunas.json'):
@@ -127,9 +121,9 @@ def process_all_accounts_format(files):
         for col in meses_cols + agregadores_cols:
             if col in df.columns:
                 s = df[col].astype(str)
-                s = s.str.replace(r'^\s*-\s*$', '0', regex=True) # Transforma " - " em "0"
-                s = s.str.replace('.', '', regex=False)          # Remove ponto de milhar
-                s = s.str.replace(',', '.', regex=False)          # Troca vírgula por ponto decimal
+                s = s.str.replace(r'^\s*-\s*$', '0', regex=True)
+                s = s.str.replace('.', '', regex=False)
+                s = s.str.replace(',', '.', regex=False)
                 df[col] = pd.to_numeric(s, errors='coerce').fillna(0)
 
         # =========================================================
@@ -141,7 +135,6 @@ def process_all_accounts_format(files):
         cols_ytd = [m for m in meses_reais_cols if m in df.columns]
         cols_boy = [m for m in meses_proj_cols if m in df.columns]
         
-        # Prioriza a captura dos valores DITOS na planilha. Se a coluna não existir, o código calcula sozinho.
         if 'YTD' in df.columns:
             df['Valor_YTD'] = df['YTD']
         else:
@@ -161,17 +154,12 @@ def process_all_accounts_format(files):
         # 5. BLINDAGEM DE HIERARQUIA E REMOÇÃO DE LIXO SAP
         # =========================================================
         if 'Classe_Custo' in df.columns:
-            # 1. Limpeza bruta de formatação
             df['Classe_Custo'] = df['Classe_Custo'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
-            
-            # 2. 🚀 O FILTRO DEFINITIVO: Extrai o código e exige 7 dígitos numéricos
-            # Isso expulsa da base todos os Pacotes, Subtotais e lixos que o SAP joga na coluna de Contas
             codigos = df['Classe_Custo'].str.extract(r'(\d+)\s*$')[0]
             mask_ok = (codigos.str.len() == 7) & (codigos != '1111111')
             df = df[mask_ok]
 
         if 'DenConta' in df.columns and 'Classe_Custo' in df.columns:
-            # 3. 🚀 BLINDAGEM VISUAL: Removemos quebras de linha (\n) que destroem as caixas HTML
             den_conta_limpa = df['DenConta'].astype(str).str.replace('\n', ' ', regex=False).str.replace('\r', '', regex=False)
             df['Desc_Conta'] = den_conta_limpa + " - " + df['Classe_Custo']
         else:
@@ -182,13 +170,8 @@ def process_all_accounts_format(files):
             
         dfs.append(df)  
         
-    # Junta tudo em uma base final
     df_final = pd.concat(dfs, ignore_index=True)
     
-    # =========================================================
-    # 🚀 OTIMIZAÇÃO EXTREMA DE MEMÓRIA (COMPRESSÃO DE DADOS)
-    # =========================================================
-    # 1. Converte textos repetitivos em categorias (Reduz 80% da RAM)
     colunas_texto = ['Centro_Custo', 'DenClsCst', 'Classe_Custo', 'DenConta', 
                      'Pacote', 'Tipo_Dado', 'Localidade', 'VP', 'P_L', 
                      'Desc_Conta', 'Desc_Material']
@@ -197,7 +180,6 @@ def process_all_accounts_format(files):
         if col in df_final.columns:
             df_final[col] = df_final[col].astype('category')
             
-    # 2. Converte números gigantes (float64) para números leves (float32)
     for col in meses_cols + agregadores_cols + ['Valor_YTD', 'Valor_BOY', 'Valor_FY']:
         if col in df_final.columns:
             df_final[col] = pd.to_numeric(df_final[col], downcast='float')
