@@ -345,6 +345,9 @@ def load_and_process_base(files):
     })
     gc.collect()
 
+    # 🚀 A LINHA QUE FALTAVA! CARREGAMOS AS BASES AQUI PARA O CRUZAMENTO:
+    df_contas, df_cc = carregar_bases_apoio()
+
     if df_contas is not None and df_cc is not None:
         df_contas['Conta'] = df_contas['Conta'].astype(str).str.split('.').str[0].str.strip().str.lstrip('0').str.upper()
         df_cc['CC'] = df_cc['CC'].astype(str).str.split('.').str[0].str.strip().str.lstrip('0').str.upper()
