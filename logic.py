@@ -165,8 +165,16 @@ def carregar_bases_apoio():
         st.warning(f"⚠️ Erro ao abrir as bases de apoio: {e}")
         return None, None
 
-@st.cache_data(show_spinner="Otimizando base de dados...")
 def load_and_process_base(files):
+    import time
+    import streamlit as st
+    
+    # 🚀 A "Função Casca": Chama o spinner nativo, força a tela a atualizar (sleep) e chama o seu código
+    with st.spinner("⏳ Lendo arquivos, otimizando base e cruzando chaves SAP..."):
+        time.sleep(0.5) 
+        return _load_and_process_base_internal(files)
+
+def _load_and_process_base_internal(files):
     dfs = []
     from utils import mapeamento
     import csv
