@@ -174,11 +174,14 @@ def load_and_process_base(files):
     from utils import mapeamento
     import csv
     import io
+    import time # 🚀 O controlador de tempo para forçar o navegador a desenhar a tela
     
     total_arquivos = len(files)
 
     for idx, f in enumerate(files):
-        ui_aviso.info(f"⏳ Lendo e processando arquivo {idx + 1}/{total_arquivos}: `{f.name}`...")
+        ui_aviso.info(f"⏳ Lendo arquivo {idx + 1}/{total_arquivos}: `{f.name}`...")
+        time.sleep(0.1) # 🚀 FORÇA A TELA A PINTAR O AVISO
+        
         try: 
             # 🚀 ESCUDO DE MEMÓRIA (Nativo do Streamlit)
             file_buffer = io.BytesIO(f.getvalue())
@@ -187,7 +190,6 @@ def load_and_process_base(files):
                 sample_bytes = file_buffer.read(10000)
                 file_buffer.seek(0)
                 
-                # 🚀 Detetive de encoding imbatível (igual ao planejamento)
                 encodings_teste = ['utf-8-sig', 'cp1252', 'latin-1', 'utf-16le']
                 encoding_tentativa = 'utf-8-sig'
                 
@@ -199,20 +201,14 @@ def load_and_process_base(files):
                     except UnicodeDecodeError:
                         continue
                 
-                # Forçamos o padrão SAP idêntico ao que funcionou no planejamento
                 sep_detectado = ';' 
-                
                 file_buffer.seek(0)
-                # 🚀 Volta para o motor 'c' super-rápido
                 df_header = pd.read_csv(file_buffer, sep=sep_detectado, engine='c', encoding=encoding_tentativa, nrows=100)
             else:
                 df_header = pd.read_excel(file_buffer, engine='openpyxl', nrows=100)
                 sep_detectado = None
                 encoding_tentativa = None
             
-            # =========================================================
-            # 2. MAPEAMENTO INTELIGENTE (O bloco que havia sumido)
-            # =========================================================
             colunas_reais = df_header.columns.tolist()
             col_map_arquivo = {str(c).strip().lower(): c for c in colunas_reais}
             map_limpo = {str(k).strip().lower(): v for k, v in mapeamento.items()}
@@ -224,13 +220,11 @@ def load_and_process_base(files):
             tradução_final = {}
             colunas_sistema_obrigatorias = ['Classe_Custo', 'Centro_Custo', 'Valor', 'Data_Lancamento']
             
-            # A) BUSCA POR NOME
             for k_limpo, v_sistema in map_limpo.items():
                 if k_limpo in col_map_arquivo:
                     nome_original = col_map_arquivo[k_limpo]
                     tradução_final[nome_original] = v_sistema
             
-            # B) O "TESTE DE DNA" COM OS PARQUETS
             faltantes = [c for c in colunas_sistema_obrigatorias if c not in tradução_final.values()]
             colunas_ignotas = [c for c in colunas_reais if c not in tradução_final.keys()]
             
@@ -255,7 +249,6 @@ def load_and_process_base(files):
                     colunas_ignotas.remove(col_arq)
                     continue
 
-            # C) FALLBACK PARA O JSON
             if faltantes and REFERENCIA_CONTEUDO:
                 ref_data = REFERENCIA_CONTEUDO
                 for col_arq in colunas_ignotas[:]: 
@@ -269,28 +262,19 @@ def load_and_process_base(files):
                                 colunas_ignotas.remove(col_arq)
                                 break
                                 
-            # 3. TRAVA DE SEGURANÇA COM ERRO "RAIO-X"
             if 'Data_Lancamento' not in tradução_final.values():
                 caminho_usado = encontrar_arquivo_local('referencia_colunas.json')
                 cols_lidas = [str(c) for c in colunas_reais[:15]] 
-                
-                msg_erro = (
-                    f"❌ **A coluna de DATA não foi encontrada no arquivo:** `{f.name}`.\n\n"
-                    f"🔍 **Raio-X do que o .exe enxergou na sua planilha:**\n"
-                    f"`{cols_lidas}`\n\n"
-                    f"📂 **JSON procurado em:** `{caminho_usado}`"
-                )
+                msg_erro = f"❌ **A coluna de DATA não foi encontrada.**"
                 return msg_erro, None, None, None
 
-            # =========================================================
-            # 4. LEITURA COMPLETA OTIMIZADA EM LOTES (Chunking)
-            # =========================================================
             file_buffer.seek(0)
             colunas_para_ler = list(tradução_final.keys())
             
+            ui_aviso.info("⏳ Expandindo dados na memória (Isso pode levar alguns segundos)...")
+            time.sleep(0.1) # 🚀 FORÇA A TELA
+            
             if f.name.endswith('.csv'):
-                # 🚀 Fatiamos o arquivo em lotes de 15.000 linhas.
-                # Isso impede o motor 'c' de exigir gigabytes de RAM de uma só vez na Web.
                 lista_pedacos = []
                 chunks = pd.read_csv(
                     file_buffer, 
@@ -304,13 +288,12 @@ def load_and_process_base(files):
                     lista_pedacos.append(pedaco)
                     
                 df_temp = pd.concat(lista_pedacos, ignore_index=True)
-                del lista_pedacos, chunks # Passa a vassoura na RAM imediatamente
+                del lista_pedacos, chunks 
             else:
                 df_temp = pd.read_excel(file_buffer, usecols=colunas_para_ler, engine='openpyxl')
 
             df_temp.rename(columns=tradução_final, inplace=True)
 
-            # 5. LIMPEZA INICIAL
             if 'Data_Lancamento' in df_temp.columns:
                 df_temp['Data_Lancamento'] = pd.to_datetime(df_temp['Data_Lancamento'], dayfirst=True, errors='coerce')
                 df_temp = df_temp.dropna(subset=['Data_Lancamento'])
@@ -330,8 +313,9 @@ def load_and_process_base(files):
             dfs.append(df_temp)
             gc.collect()
             
-            # Atualiza a barra de progresso (metade do trabalho é a leitura)
-            ui_barra.progress(int(((idx + 1) / total_arquivos) * 50))
+            # Avança a barra para a metade do progresso
+            ui_barra.progress(int(((idx + 1) / total_arquivos) * 40))
+            time.sleep(0.1) # 🚀 FORÇA A TELA
 
         except Exception as e: 
             ui_aviso.empty()
@@ -343,7 +327,9 @@ def load_and_process_base(files):
         ui_barra.empty()
         return "Nenhum dado processado.", None, None, None
     
-    ui_aviso.info("⏳ Consolidando as linhas e aplicando agrupamentos...")
+    ui_aviso.info("⏳ Consolidando as linhas (Agrupamento SAP)...")
+    time.sleep(0.1) # 🚀 FORÇA A TELA
+    
     df = pd.concat(dfs, ignore_index=True)
     del dfs
     gc.collect()
@@ -361,13 +347,14 @@ def load_and_process_base(files):
         'Data_Lancamento': 'max' 
     })
     gc.collect()
+    
     ui_barra.progress(70)
+    ui_aviso.info("⏳ Cruzando as chaves SAP com as descrições da Pepsico...")
+    time.sleep(0.1) # 🚀 FORÇA A TELA
 
-    ui_aviso.info("⏳ Cruzando as chaves SAP com as descrições das Contas e CCs...")
     df_contas, df_cc = carregar_bases_apoio()
     
     if df_contas is not None and df_cc is not None:
-        # 1. Blindagem Absoluta: Forçar texto e cortar qualquer casa decimal indesejada
         df_contas['Conta'] = df_contas['Conta'].astype(str).str.split('.').str[0].str.strip().str.lstrip('0').str.upper()
         df_cc['CC'] = df_cc['CC'].astype(str).str.split('.').str[0].str.strip().str.lstrip('0').str.upper()
         
@@ -381,11 +368,9 @@ def load_and_process_base(files):
         else:
             df['Centro_Custo'] = "CC_INDEFINIDO"
         
-        # Elimina duplicatas para o Merge não estourar a memória multiplicando linhas
         df_contas = df_contas.drop_duplicates(subset=['Conta'])
         df_cc = df_cc.drop_duplicates(subset=['CC'])
         
-        # CRUZAMENTOS
         df = df.merge(df_contas[['Conta', 'Desc Conta', 'Pacote', 'P&L']], 
                       left_on='Classe_Custo', right_on='Conta', how='left')
         del df_contas 
@@ -396,7 +381,6 @@ def load_and_process_base(files):
         del df_cc 
         gc.collect() 
         
-        # 🚀 RECONSTRUÇÃO COM FALLBACK: Se não achar no arquivo, ele mostra o código SAP original
         df['Desc_Conta'] = df['Desc Conta'].fillna("Cod") + " - " + df['Classe_Custo'].fillna("000000")
         df['P_L'] = df['Responsável'].fillna("Não Encontrado") 
         df['VP'] = df['VP'].fillna("Não Encontrado")
@@ -424,19 +408,15 @@ def load_and_process_base(files):
     for col in colunas_texto:
         if col in df.columns:
             df[col] = df[col].astype('category')
-
+            
     ui_barra.progress(100)
-    ui_aviso.success("✅ Base de dados processada com sucesso!")
+    ui_aviso.success("✅ Tudo pronto! Montando painel...")
+    time.sleep(0.8) # 🚀 Pausa rápida para você ver que o carregamento terminou com sucesso!
     
-    # Pausa rápida para o usuário ler o "sucesso" antes da tela limpar
-    import time
-    time.sleep(0.8)
     ui_aviso.empty()
     ui_barra.empty()
 
     return get_yoy_data(df)
-
-# Manter as funções voltar_nivel, apply_color_logic, etc., sem alterações.
 
 def voltar_nivel():
     """
