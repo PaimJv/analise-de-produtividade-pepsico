@@ -166,24 +166,24 @@ def carregar_bases_apoio():
         return None, None
 
 def load_and_process_base(files):
-    # 🚀 Criamos os espaços de notificação na tela
-    ui_aviso = st.empty()
-    ui_barra = st.progress(0)
-    
-    dfs = []
+    import time
     from utils import mapeamento
     import csv
     import io
-    import time # 🚀 O controlador de tempo para forçar o navegador a desenhar a tela
     
+    # 1. INICIALIZAÇÃO DA INTERFACE AQUI (Isso evita o NameError que você viu!)
+    status_texto = st.empty()
+    barra_progresso = st.progress(0)
+    
+    dfs = []
     total_arquivos = len(files)
 
     for idx, f in enumerate(files):
-        ui_aviso.info(f"⏳ Lendo arquivo {idx + 1}/{total_arquivos}: `{f.name}`...")
-        time.sleep(0.05) # 🚀 FORÇA A TELA A PINTAR O AVISO
+        status_texto.info(f"⏳ Lendo arquivo {idx + 1} de {total_arquivos}: `{f.name}`...")
+        time.sleep(0.05) # Força a tela a desenhar a barra para você ver que não travou
         
         try: 
-            # 🚀 ESCUDO DE MEMÓRIA (Nativo do Streamlit)
+            # 🚀 ESCUDO DE MEMÓRIA
             file_buffer = io.BytesIO(f.getvalue())
             
             if f.name.endswith('.csv'):
@@ -263,16 +263,13 @@ def load_and_process_base(files):
                                 break
                                 
             if 'Data_Lancamento' not in tradução_final.values():
-                caminho_usado = encontrar_arquivo_local('referencia_colunas.json')
-                cols_lidas = [str(c) for c in colunas_reais[:15]] 
-                msg_erro = f"❌ **A coluna de DATA não foi encontrada.**"
+                status_texto.empty()
+                barra_progresso.empty()
+                msg_erro = f"❌ **A coluna de DATA não foi encontrada no arquivo:** `{f.name}`."
                 return msg_erro, None, None, None
 
             file_buffer.seek(0)
             colunas_para_ler = list(tradução_final.keys())
-            
-            ui_aviso.info("⏳ Expandindo dados na memória (Isso pode levar alguns segundos)...")
-            time.sleep(0.1) # 🚀 FORÇA A TELA
             
             if f.name.endswith('.csv'):
                 lista_pedacos = []
@@ -347,13 +344,7 @@ def load_and_process_base(files):
         'Data_Lancamento': 'max' 
     })
     gc.collect()
-    
-    ui_barra.progress(70)
-    ui_aviso.info("⏳ Cruzando as chaves SAP com as descrições da Pepsico...")
-    time.sleep(0.1) # 🚀 FORÇA A TELA
 
-    df_contas, df_cc = carregar_bases_apoio()
-    
     if df_contas is not None and df_cc is not None:
         df_contas['Conta'] = df_contas['Conta'].astype(str).str.split('.').str[0].str.strip().str.lstrip('0').str.upper()
         df_cc['CC'] = df_cc['CC'].astype(str).str.split('.').str[0].str.strip().str.lstrip('0').str.upper()
