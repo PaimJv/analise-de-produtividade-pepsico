@@ -180,7 +180,7 @@ def load_and_process_base(files):
 
     for idx, f in enumerate(files):
         ui_aviso.info(f"⏳ Lendo arquivo {idx + 1}/{total_arquivos}: `{f.name}`...")
-        time.sleep(0.1) # 🚀 FORÇA A TELA A PINTAR O AVISO
+        time.sleep(0.05) # 🚀 FORÇA A TELA A PINTAR O AVISO
         
         try: 
             # 🚀 ESCUDO DE MEMÓRIA (Nativo do Streamlit)
@@ -313,22 +313,22 @@ def load_and_process_base(files):
             dfs.append(df_temp)
             gc.collect()
             
-            # Avança a barra para a metade do progresso
-            ui_barra.progress(int(((idx + 1) / total_arquivos) * 40))
-            time.sleep(0.1) # 🚀 FORÇA A TELA
+            barra_progresso.progress(int(((idx + 1) / total_arquivos) * 50))
+            time.sleep(0.05)
 
         except Exception as e: 
-            ui_aviso.empty()
-            ui_barra.empty()
+            status_texto.empty()
+            barra_progresso.empty()
             return f"Erro no arquivo {f.name}: {str(e)}", None, None, None
     
     if not dfs: 
-        ui_aviso.empty()
-        ui_barra.empty()
+        status_texto.empty()
+        barra_progresso.empty()
         return "Nenhum dado processado.", None, None, None
     
-    ui_aviso.info("⏳ Consolidando as linhas (Agrupamento SAP)...")
-    time.sleep(0.1) # 🚀 FORÇA A TELA
+    status_texto.info("⏳ Consolidando os dados e cruzando chaves...")
+    barra_progresso.progress(70)
+    time.sleep(0.05)
     
     df = pd.concat(dfs, ignore_index=True)
     del dfs
@@ -408,13 +408,13 @@ def load_and_process_base(files):
     for col in colunas_texto:
         if col in df.columns:
             df[col] = df[col].astype('category')
-            
-    ui_barra.progress(100)
-    ui_aviso.success("✅ Tudo pronto! Montando painel...")
-    time.sleep(0.8) # 🚀 Pausa rápida para você ver que o carregamento terminou com sucesso!
+
+    barra_progresso.progress(100)
+    status_texto.success("✅ Base processada com sucesso!")
+    time.sleep(0.6)
     
-    ui_aviso.empty()
-    ui_barra.empty()
+    barra_progresso.empty()
+    status_texto.empty()
 
     return get_yoy_data(df)
 
