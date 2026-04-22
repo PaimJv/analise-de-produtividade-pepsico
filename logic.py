@@ -165,14 +165,20 @@ def carregar_bases_apoio():
         st.warning(f"⚠️ Erro ao abrir as bases de apoio: {e}")
         return None, None
 
-@st.cache_data(show_spinner="Otimizando base de dados...")
 def load_and_process_base(files):
+    # 🚀 Criamos os espaços de notificação na tela
+    ui_aviso = st.empty()
+    ui_barra = st.progress(0)
+    
     dfs = []
     from utils import mapeamento
     import csv
     import io
+    
+    total_arquivos = len(files)
 
-    for f in files:
+    for idx, f in enumerate(files):
+        ui_aviso.info(f"⏳ Lendo e processando arquivo {idx + 1}/{total_arquivos}: `{f.name}`...")
         try: 
             # 🚀 ESCUDO DE MEMÓRIA (Nativo do Streamlit)
             file_buffer = io.BytesIO(f.getvalue())
@@ -323,12 +329,21 @@ def load_and_process_base(files):
 
             dfs.append(df_temp)
             gc.collect()
+            
+            # Atualiza a barra de progresso (metade do trabalho é a leitura)
+            ui_barra.progress(int(((idx + 1) / total_arquivos) * 50))
 
         except Exception as e: 
+            ui_aviso.empty()
+            ui_barra.empty()
             return f"Erro no arquivo {f.name}: {str(e)}", None, None, None
     
-    if not dfs: return "Nenhum dado processado.", None, None, None
+    if not dfs: 
+        ui_aviso.empty()
+        ui_barra.empty()
+        return "Nenhum dado processado.", None, None, None
     
+    ui_aviso.info("⏳ Consolidando as linhas e aplicando agrupamentos...")
     df = pd.concat(dfs, ignore_index=True)
     del dfs
     gc.collect()
@@ -346,7 +361,9 @@ def load_and_process_base(files):
         'Data_Lancamento': 'max' 
     })
     gc.collect()
+    ui_barra.progress(70)
 
+    ui_aviso.info("⏳ Cruzando as chaves SAP com as descrições das Contas e CCs...")
     df_contas, df_cc = carregar_bases_apoio()
     
     if df_contas is not None and df_cc is not None:
@@ -407,6 +424,15 @@ def load_and_process_base(files):
     for col in colunas_texto:
         if col in df.columns:
             df[col] = df[col].astype('category')
+
+    ui_barra.progress(100)
+    ui_aviso.success("✅ Base de dados processada com sucesso!")
+    
+    # Pausa rápida para o usuário ler o "sucesso" antes da tela limpar
+    import time
+    time.sleep(0.8)
+    ui_aviso.empty()
+    ui_barra.empty()
 
     return get_yoy_data(df)
 
