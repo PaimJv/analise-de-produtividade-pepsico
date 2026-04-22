@@ -6,6 +6,15 @@ import json
 from utils import LABELS_MAP
 
 def process_all_accounts_format(files):
+    import time
+    import streamlit as st
+    
+    # 🚀 Função Casca: Garante que o spinner gire na Web
+    with st.spinner("⏳ Lendo arquivos de planejamento e mapeando colunas..."):
+        time.sleep(0.5) 
+        return _process_all_accounts_format_internal(files)
+
+def _process_all_accounts_format_internal(files):
     """Lê o arquivo matricial, detecta o cabeçalho e mapeia colunas (Dimensões + Financeiras)."""
     dfs = []
     import io
