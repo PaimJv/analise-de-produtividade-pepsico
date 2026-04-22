@@ -165,23 +165,14 @@ def carregar_bases_apoio():
         st.warning(f"⚠️ Erro ao abrir as bases de apoio: {e}")
         return None, None
 
+@st.cache_data(show_spinner="Otimizando base de dados...")
 def load_and_process_base(files):
-    import time
+    dfs = []
     from utils import mapeamento
     import csv
     import io
     
-    # 1. INICIALIZAÇÃO DA INTERFACE AQUI (Isso evita o NameError que você viu!)
-    status_texto = st.empty()
-    barra_progresso = st.progress(0)
-    
-    dfs = []
-    total_arquivos = len(files)
-
-    for idx, f in enumerate(files):
-        status_texto.info(f"⏳ Lendo arquivo {idx + 1} de {total_arquivos}: `{f.name}`...")
-        time.sleep(0.05) # Força a tela a desenhar a barra para você ver que não travou
-        
+    for f in files:
         try: 
             # 🚀 ESCUDO DE MEMÓRIA
             file_buffer = io.BytesIO(f.getvalue())
@@ -263,8 +254,6 @@ def load_and_process_base(files):
                                 break
                                 
             if 'Data_Lancamento' not in tradução_final.values():
-                status_texto.empty()
-                barra_progresso.empty()
                 msg_erro = f"❌ **A coluna de DATA não foi encontrada no arquivo:** `{f.name}`."
                 return msg_erro, None, None, None
 
@@ -309,23 +298,12 @@ def load_and_process_base(files):
 
             dfs.append(df_temp)
             gc.collect()
-            
-            barra_progresso.progress(int(((idx + 1) / total_arquivos) * 50))
-            time.sleep(0.05)
 
         except Exception as e: 
-            status_texto.empty()
-            barra_progresso.empty()
             return f"Erro no arquivo {f.name}: {str(e)}", None, None, None
     
     if not dfs: 
-        status_texto.empty()
-        barra_progresso.empty()
         return "Nenhum dado processado.", None, None, None
-    
-    status_texto.info("⏳ Consolidando os dados e cruzando chaves...")
-    barra_progresso.progress(70)
-    time.sleep(0.05)
     
     df = pd.concat(dfs, ignore_index=True)
     del dfs
@@ -345,7 +323,6 @@ def load_and_process_base(files):
     })
     gc.collect()
 
-    # 🚀 A LINHA QUE FALTAVA! CARREGAMOS AS BASES AQUI PARA O CRUZAMENTO:
     df_contas, df_cc = carregar_bases_apoio()
 
     if df_contas is not None and df_cc is not None:
@@ -402,13 +379,6 @@ def load_and_process_base(files):
     for col in colunas_texto:
         if col in df.columns:
             df[col] = df[col].astype('category')
-
-    barra_progresso.progress(100)
-    status_texto.success("✅ Base processada com sucesso!")
-    time.sleep(0.6)
-    
-    barra_progresso.empty()
-    status_texto.empty()
 
     return get_yoy_data(df)
 
