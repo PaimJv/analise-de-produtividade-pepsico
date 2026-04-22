@@ -64,36 +64,46 @@ if pode_processar:
 
     # --- 4. PROCESSAMENTO OTIMIZADO ---
     if st.session_state.df_raw is None:
-        with st.spinner("Otimizando base de dados..."):
-            modo_planilha = st.session_state.get('modo_planilha', 'Planilha do SAP')
-            
-            # BIFURCAÇÃO DA LEITURA DE DADOS
-            if modo_planilha == "Planilha com todas as contas":
-                # ROTA 1: Novo motor de planejamento
-                res = planejamento_logic.process_all_accounts_format(uploaded_files)
-                if isinstance(res, pd.DataFrame):
-                    # No novo modo, as dimensões padrão incluem o 'Pacote'
-                    dims_desejadas = ['Desc_Conta', 'P_L', 'VP', 'Localidade', 'Centro_Custo', 'Desc_Material', 'Pacote']
-                    dims_validas = ['Desc_Conta', 'P_L', 'VP', 'Localidade', 'Centro_Custo', 'Desc_Material', 'Pacote']
-                    at, ant, aviso = 2026, 2025, None # Fake values para não quebrar a UI
-            else:
-                # ROTA 2: Motor original do SAP
-                res, at, ant, aviso = load_and_process_base(uploaded_files)
-                if isinstance(res, pd.DataFrame):
-                    from logic import obter_dimensoes_validas
-                    dims_validas = obter_dimensoes_validas(res, at, ant)
-
-            # SALVAMENTO NA SESSÃO (Igual para ambos)
+        # 🚀 O ESTADO DE CARREGAMENTO MANUAL (ATIVA A ANIMAÇÃO)
+        loading_placeholder = st.empty()
+        loading_placeholder.info("⏳ **Processando e otimizando base de dados...** (O navegador pode parecer congelado por alguns segundos, por favor aguarde!)")
+        
+        import time
+        time.sleep(0.3) # O FÔLEGO: Dá tempo ao navegador para desenhar a mensagem acima
+        
+        modo_planilha = st.session_state.get('modo_planilha', 'Planilha do SAP')
+        
+        # BIFURCAÇÃO DA LEITURA DE DADOS
+        if modo_planilha == "Planilha com todas as contas":
+            # ROTA 1: Novo motor de planejamento
+            res = planejamento_logic.process_all_accounts_format(uploaded_files)
             if isinstance(res, pd.DataFrame):
-                st.session_state.df_raw = res
-                st.session_state.ano_at = at
-                st.session_state.ano_ant = ant
-                st.session_state.dims_com_paridade = dims_validas
-                st.session_state.aviso_incompleto = aviso
-                gc.collect()
-            else:
-                st.error(f"Erro no processamento: {res}")
-                st.stop()
+                # No novo modo, as dimensões padrão incluem o 'Pacote'
+                dims_desejadas = ['Desc_Conta', 'P_L', 'VP', 'Localidade', 'Centro_Custo', 'Desc_Material', 'Pacote']
+                dims_validas = ['Desc_Conta', 'P_L', 'VP', 'Localidade', 'Centro_Custo', 'Desc_Material', 'Pacote']
+                at, ant, aviso = 2026, 2025, None # Fake values para não quebrar a UI
+        else:
+            # ROTA 2: Motor original do SAP
+            res, at, ant, aviso = load_and_process_base(uploaded_files)
+            if isinstance(res, pd.DataFrame):
+                from logic import obter_dimensoes_validas
+                dims_validas = obter_dimensoes_validas(res, at, ant)
+
+        # SALVAMENTO NA SESSÃO (Igual para ambos)
+        if isinstance(res, pd.DataFrame):
+            st.session_state.df_raw = res
+            st.session_state.ano_at = at
+            st.session_state.ano_ant = ant
+            st.session_state.dims_com_paridade = dims_validas
+            st.session_state.aviso_incompleto = aviso
+            gc.collect()
+        else:
+            loading_placeholder.empty()
+            st.error(f"Erro no processamento: {res}")
+            st.stop()
+            
+        # 🚀 FINALIZOU O PROCESSAMENTO: Limpa a mensagem da tela
+        loading_placeholder.empty()
     
     # Atalhos (Garante que as variáveis existam para a sidebar)
     df_raw = st.session_state.df_raw
@@ -151,8 +161,16 @@ if pode_processar:
         if not dimensoes_ia:
             st.warning("Selecione as dimensões na barra lateral para o relatório detalhado.")
         else:
-            with st.spinner("Gerando visão estruturada..."):
-                planejamento_logic.render_planejamento_ui(df_filtrado, dimensoes_ia)
+            # 🚀 CARREGAMENTO MANUAL DE TELA
+            status_plan = st.empty()
+            status_plan.info("📊 Gerando visão estruturada em painéis... Por favor, aguarde.")
+            
+            import time
+            time.sleep(0.3) # O FÔLEGO
+            
+            planejamento_logic.render_planejamento_ui(df_filtrado, dimensoes_ia)
+            
+            status_plan.empty() # Limpa após carregar
 
     else:
         
@@ -216,13 +234,21 @@ if pode_processar:
                 st.warning("Selecione as dimensões na barra lateral para o relatório detalhado.")
             else:
                 filtro_id = "-".join(map(str, sorted(meses_filtro)))
-                placeholder = st.empty()
                 
+                # 🚀 CARREGAMENTO MANUAL DE TELA
+                status_relatorio = st.empty()
+                status_relatorio.info("📊 Montando auditoria detalhada e calculando variações YoY... Aguarde.")
+                
+                import time
+                time.sleep(0.3) # O FÔLEGO
+                
+                placeholder = st.empty()
                 with placeholder.container(): 
-                    with st.spinner("Gerando auditoria detalhada..."):
-                        from logic import render_report_ui, prepare_report_data            
-                        df_master, dims_analise = prepare_report_data(df_filtrado, dimensoes_ia, ano_at, ano_ant)
-                        render_report_ui(df_master, dims_analise, ano_at, ano_ant, foco_res, selecao_meses=meses_filtro)
+                    from logic import render_report_ui, prepare_report_data            
+                    df_master, dims_analise = prepare_report_data(df_filtrado, dimensoes_ia, ano_at, ano_ant)
+                    render_report_ui(df_master, dims_analise, ano_at, ano_ant, foco_res, selecao_meses=meses_filtro)
+                
+                status_relatorio.empty() # Limpa após carregar
         
         else:
             # Nível Final (Material)
