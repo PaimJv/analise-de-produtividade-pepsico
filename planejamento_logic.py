@@ -212,18 +212,13 @@ def render_planejamento_ui(df_nivel, dims, profundidade=0, filtro_contexto=None)
     barra_progresso = st.progress(0)
     
     with st.spinner("Otimizando tabelas e renderizando visão executiva..."):
-        # 🚀 PASSO 1: Pré-calcular todos os agrupamentos necessários para as dimensões selecionadas
-        # Isso evita que o Python filtre o DataFrame repetidamente dentro dos loops.
         with st.expander("Detalhamento do processamento", expanded=False):
             st.write("Agrupando dimensões...")
             
-        # Criamos um dicionário de busca rápida (Lookup Table)
-        # Agrupamos por todas as dimensões de uma vez para acesso instantâneo
         lookup_df = df_nivel.groupby(dims + ['Tipo_Dado'], observed=True, as_index=False)[
             ['Valor_YTD', 'Valor_BOY', 'Valor_FY']
         ].sum()
         
-        # 🚀 PASSO 2: Motor de renderização em lotes
         teve_dados = _gerar_html_alta_performance(
             lookup_df, dims, 0, {}, foco_analise, aviso_texto, barra_progresso
         )
@@ -236,15 +231,13 @@ def render_planejamento_ui(df_nivel, dims, profundidade=0, filtro_contexto=None)
     else:
         msg_topo.success("✅ Relatório gerado com sucesso!")
 
-
 def _gerar_html_alta_performance(df_lookup, dims, profundidade, filtro_contexto, foco_analise, text_ui=None, progress_ui=None):
-    """Motor que utiliza tabelas de busca para renderização instantânea."""
+    """Motor que utiliza tabelas de busca para renderização instantânea (Modo Escuro Ativo)."""
     if not dims or profundidade >= len(dims):
         return ""
 
     col = dims[profundidade]
     
-    # Aplica os filtros acumulados no dataframe de lookup
     df_temp = df_lookup.copy()
     if filtro_contexto:
         for c, v in filtro_contexto.items():
@@ -253,7 +246,6 @@ def _gerar_html_alta_performance(df_lookup, dims, profundidade, filtro_contexto,
     itens = sorted(df_temp[col].unique().astype(str).tolist())
     total_itens = len(itens)
     
-    # Limite de segurança visual
     if total_itens > 150 and profundidade == 0:
         st.warning(f"⚠️ Volume alto detectado ({total_itens} itens). O relatório será renderizado em blocos.")
 
@@ -266,10 +258,8 @@ def _gerar_html_alta_performance(df_lookup, dims, profundidade, filtro_contexto,
             text_ui.info(f"🚀 Renderizando {idx + 1}/{total_itens}: **{item}**")
             progress_ui.progress(porcentagem)
 
-        # Filtra o lookup apenas para o item atual
         df_item = df_temp[df_temp[col].astype(str) == item]
         
-        # Cálculos de valores usando o Tipo_Dado pré-agrupado
         def get_sum(mask_type, col_val):
             return df_item[df_item['Tipo_Dado'].astype(str).str.contains(mask_type, na=False)][col_val].sum()
 
@@ -289,58 +279,51 @@ def _gerar_html_alta_performance(df_lookup, dims, profundidade, filtro_contexto,
         if foco_analise == "Apenas Desvios (Gastos)" and var_2025 <= 0: continue
 
         encontrou_dados = True
-        cor_var = '#d32f2f' if var_2025 > 0 else '#2e7d32' if var_2025 < 0 else '#666'
+        
+        # 🚀 Cores que funcionam perfeitamente em temas claros e escuros
+        cor_var = '#ff4b4b' if var_2025 > 0 else '#09ab3b' if var_2025 < 0 else 'var(--text-color)'
         sinal_var = '+' if var_2025 > 0 else ''
         label_pref = '📌' if profundidade == 0 else '➥'
         
-        # Sub-renderização (Recursiva)
         novo_contexto = (filtro_contexto or {}).copy()
         novo_contexto[col] = item
         html_filhos = _gerar_html_alta_performance(df_temp, dims, profundidade + 1, novo_contexto, foco_analise)
 
-        # 🚀 HTML resumido colado em UMA LINHA (Evita a quebra das caixas do Streamlit)
+        # 🚀 HTML Responsivo: Usa a cor de fundo e de texto do próprio sistema (var(--...))
         html_item = (
-            f"<details style='margin-bottom: 8px; border: 1px solid #d1d5db; border-radius: 8px; background-color: #ffffff;'>"
-            f"<summary style='padding: 12px; font-weight: bold; cursor: pointer; font-family: sans-serif; font-size: 14px;'>"
-            f"{label_pref} {item} <span style='font-weight: normal; color: #555; margin-left: 10px;'>"
-            f"| YTD: {format_brl(ytd_real)} | Var: <span style='color: {cor_var};'>{sinal_var}{format_brl(var_2025)}</span></span>"
+            f"<details style='margin-bottom: 8px; border: 1px solid rgba(128,128,128,0.2); border-radius: 8px; background-color: transparent;'>"
+            f"<summary style='padding: 12px; font-weight: bold; cursor: pointer; font-family: sans-serif; font-size: 14px; color: var(--text-color); background-color: var(--secondary-background-color); border-bottom: 1px solid rgba(128,128,128,0.2);'>"
+            f"{label_pref} {item} <span style='font-weight: normal; opacity: 0.8; margin-left: 10px;'>"
+            f"| YTD: {format_brl(ytd_real)} | Var: <span style='color: {cor_var}; font-weight: bold;'>{sinal_var}{format_brl(var_2025)}</span></span>"
             f"</summary>"
-            f"<div style='padding: 15px; border-top: 1px solid #eee;'>"
-            
-            # ÚNICO CONTAINER FLEX PARA TODOS OS CARDS (O segredo para não quebrar o HTML)
+            f"<div style='padding: 15px; border-top: 1px solid rgba(128,128,128,0.2); color: var(--text-color);'>"
             f"<div style='display: flex; gap: 10px; flex-wrap: wrap;'>"
             
-            # --- CARDS YTD ---
             f"{_get_card_mini('YTD Real', ytd_real)}"
             f"{_get_card_mini('Meta AOP (YTD)', ytd_aop, var_valor=ytd_real - ytd_aop)}"
             f"{_get_card_mini('Real 2025 (YTD)', ytd_2025, var_valor=var_2025)}"
             
-            # --- CARDS BOY ---
             f"{_get_card_mini('BOY Projetado', boy_proj)}"
             f"{_get_card_mini('BOY 2025', boy_2025, var_valor=boy_proj - boy_2025)}"
             
-            # --- CARDS FY ---
             f"{_get_card_mini('FY Estimado', fy_total)}"
             f"{_get_card_mini('FY 2025', fy_2025, var_valor=fy_total - fy_2025)}"
             
             f"</div>"
             
-            f"<div style='margin-top: 10px; padding-left: 15px; border-left: 2px solid #eee;'>"
+            f"<div style='margin-top: 10px; padding-left: 15px; border-left: 2px solid rgba(128,128,128,0.2);'>"
             f"{html_filhos}"
             f"</div>"
-            
             f"</div>"
             f"</details>"
         )
         
         batch_html.append(html_item)
         
-        # Renderiza a cada 10 itens no nível mestre para manter a fluidez e burlar o limite
         if profundidade == 0 and len(batch_html) >= 10:
             st.markdown("".join(batch_html), unsafe_allow_html=True)
             batch_html = []
 
-    # Renderiza o restante do lote ao final do loop
     if profundidade == 0 and batch_html:
         st.markdown("".join(batch_html), unsafe_allow_html=True)
         return encontrou_dados
@@ -348,15 +331,13 @@ def _gerar_html_alta_performance(df_lookup, dims, profundidade, filtro_contexto,
     return "".join(batch_html)
 
 def _get_card_mini(titulo, valor, var_valor=None):
-    """Gera um card HTML com valor principal e variação opcional entre parênteses."""
+    """Gera um card HTML responsivo ao modo escuro."""
     valor_formatado = format_brl(valor)
     
-    # Se houver valor de variação, formata com a cor e os parênteses
     texto_extra = ""
     if var_valor is not None:
-        cor_var = '#d32f2f' if var_valor > 0 else '#2e7d32' if var_valor < 0 else '#666'
+        cor_var = '#ff4b4b' if var_valor > 0 else '#09ab3b' if var_valor < 0 else 'var(--text-color)'
         sinal_var = '+' if var_valor > 0 else ''
-        # Adiciona os parênteses em um <div> para forçar a quebra de linha visual, com uma margem no topo
         texto_extra = f"<div style='font-size: 11.5px; font-weight: 600; color: {cor_var}; margin-top: 2px;'>({sinal_var}{format_brl(var_valor)})</div>"
 
-    return f"<div style='flex: 1; min-width: 140px; padding: 8px; background-color: #fcfcfc; border: 1px solid #eee; border-radius: 5px;'><div style='font-size: 11px; color: #777;'>{titulo}</div><div style='font-size: 14px; font-weight: bold; color: #111;'>{valor_formatado}{texto_extra}</div></div>"
+    return f"<div style='flex: 1; min-width: 140px; padding: 8px; background-color: var(--secondary-background-color); border: 1px solid rgba(128,128,128,0.2); border-radius: 5px;'><div style='font-size: 11px; color: var(--text-color); opacity: 0.8;'>{titulo}</div><div style='font-size: 14px; font-weight: bold; color: var(--text-color);'>{valor_formatado}{texto_extra}</div></div>"
