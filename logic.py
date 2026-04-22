@@ -532,7 +532,7 @@ def _gerar_html_sap_recursivo(df_nivel, dims, ano_at, ano_ant, foco_res, profund
     # 🟢 NÍVEL FINAL: MATERIAIS (Tabelas HTML leves)
     # =========================================================
     if col == 'Desc_Material':
-        html_mat = "<div style='margin-bottom: 10px; font-size: 16px; font-weight: bold; color: #333; border-bottom: 2px solid #eee; padding-bottom: 5px;'>📦 Balanço Detalhado por Material</div>"
+        html_mat = "<div style='margin-bottom: 10px; font-size: 16px; font-weight: bold; color: var(--text-color); border-bottom: 2px solid rgba(128,128,128,0.2); padding-bottom: 5px;'>📦 Balanço Detalhado por Material</div>"
 
         df_mat_mes = df_nivel.groupby(['Mes', 'Desc_Material'])[[ano_ant, ano_at]].sum()
         meses_disponiveis = sorted(df_mat_mes.index.get_level_values('Mes').unique())
@@ -542,9 +542,9 @@ def _gerar_html_sap_recursivo(df_nivel, dims, ano_at, ano_ant, foco_res, profund
 
         for m_num in meses_disponiveis:
             nome_mes = meses_nomes.get(m_num, f"Mês {m_num}")
-            html_mat += f"<div style='margin-top: 15px; font-weight: bold; color: #444;'>📅 Referência: {nome_mes}</div>"
-            html_mat += f"<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 13px; margin-top: 5px; border: 1px solid #ddd;'>"
-            html_mat += f"<tr style='background-color: #f8f9fa;'><th style='padding: 8px; text-align: left; border-bottom: 1px solid #ddd;'>Objeto</th><th style='padding: 8px; text-align: right; border-bottom: 1px solid #ddd;'>{ano_ant}</th><th style='padding: 8px; text-align: right; border-bottom: 1px solid #ddd;'>{ano_at}</th></tr>"
+            html_mat += f"<div style='margin-top: 15px; font-weight: bold; color: var(--text-color);'>📅 Referência: {nome_mes}</div>"
+            html_mat += f"<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 13px; margin-top: 5px; border: 1px solid rgba(128,128,128,0.2);'>"
+            html_mat += f"<tr style='background-color: var(--secondary-background-color);'><th style='padding: 8px; text-align: left; border-bottom: 1px solid rgba(128,128,128,0.2);'>Objeto</th><th style='padding: 8px; text-align: right; border-bottom: 1px solid rgba(128,128,128,0.2);'>{ano_ant}</th><th style='padding: 8px; text-align: right; border-bottom: 1px solid rgba(128,128,128,0.2);'>{ano_at}</th></tr>"
 
             df_exibir = df_mat_mes.xs(m_num, level='Mes')
             t_ant_total = 0
@@ -555,9 +555,9 @@ def _gerar_html_sap_recursivo(df_nivel, dims, ano_at, ano_ant, foco_res, profund
                 v_at = row[ano_at]
                 t_ant_total += v_ant
                 t_at_total += v_at
-                html_mat += f"<tr><td style='padding: 8px; border-bottom: 1px solid #eee;'>{mat}</td><td style='padding: 8px; text-align: right; border-bottom: 1px solid #eee;'>{format_brl(v_ant)}</td><td style='padding: 8px; text-align: right; border-bottom: 1px solid #eee;'>{format_brl(v_at)}</td></tr>"
+                html_mat += f"<tr><td style='padding: 8px; border-bottom: 1px solid rgba(128,128,128,0.1);'>{mat}</td><td style='padding: 8px; text-align: right; border-bottom: 1px solid rgba(128,128,128,0.1);'>{format_brl(v_ant)}</td><td style='padding: 8px; text-align: right; border-bottom: 1px solid rgba(128,128,128,0.1);'>{format_brl(v_at)}</td></tr>"
 
-            html_mat += f"<tr style='font-weight: bold; background-color: #f1f3f5;'><td style='padding: 8px;'>Total Contexto</td><td style='padding: 8px; text-align: right;'>{format_brl(t_ant_total)}</td><td style='padding: 8px; text-align: right;'>{format_brl(t_at_total)}</td></tr>"
+            html_mat += f"<tr style='font-weight: bold; background-color: var(--secondary-background-color);'><td style='padding: 8px;'>Total Contexto</td><td style='padding: 8px; text-align: right;'>{format_brl(t_ant_total)}</td><td style='padding: 8px; text-align: right;'>{format_brl(t_at_total)}</td></tr>"
             html_mat += "</table>"
 
         return html_mat
@@ -596,7 +596,8 @@ def _gerar_html_sap_recursivo(df_nivel, dims, ano_at, ano_ant, foco_res, profund
             sub_impacto = df_item['Delta'].groupby(level=dims[profundidade+1]).sum().apply(meets_foco).any()
 
         if meets_foco(var_total) or sub_impacto:
-            cor_var = '#d32f2f' if var_total > 0 else '#2e7d32' if var_total < 0 else '#666'
+            # 🚀 Cores dinâmicas e mais vibrantes para ler bem tanto no claro quanto escuro
+            cor_var = '#ff4b4b' if var_total > 0 else '#09ab3b' if var_total < 0 else 'var(--text-color)'
             sinal_var = '+' if var_total > 0 else ''
             label_pref = '📌' if profundidade == 0 else '➥'
 
@@ -604,28 +605,28 @@ def _gerar_html_sap_recursivo(df_nivel, dims, ano_at, ano_ant, foco_res, profund
             html_meses = ""
             for m_num in delta_mensal.index:
                 val_mes = delta_mensal[m_num]
-                cor_mes = '#d32f2f' if val_mes > 0 else '#2e7d32' if val_mes < 0 else '#666'
+                cor_mes = '#ff4b4b' if val_mes > 0 else '#09ab3b' if val_mes < 0 else 'var(--text-color)'
                 sin_mes = '+' if val_mes > 0 else ''
                 nome_m = meses_nomes.get(int(m_num), f"Mês {m_num}")
-                html_meses += f"<div style='background-color: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 6px; padding: 10px; min-width: 110px; text-align: center; flex: 1;'><div style='font-size: 12px; color: #666; margin-bottom: 4px;'>{nome_m}</div><div style='font-size: 14px; font-weight: bold; color: {cor_mes};'>{sin_mes}{format_brl(val_mes)}</div></div>"
+                html_meses += f"<div style='background-color: var(--secondary-background-color); border: 1px solid rgba(128,128,128,0.2); border-radius: 6px; padding: 10px; min-width: 110px; text-align: center; flex: 1;'><div style='font-size: 12px; color: var(--text-color); opacity: 0.8; margin-bottom: 4px;'>{nome_m}</div><div style='font-size: 14px; font-weight: bold; color: {cor_mes};'>{sin_mes}{format_brl(val_mes)}</div></div>"
 
             # Recursão antecipada para os filhos
             novo_contexto = (filtro_contexto or {}).copy()
             novo_contexto[col] = item
             html_filhos = _gerar_html_sap_recursivo(df_nivel, dims, ano_at, ano_ant, foco_res, profundidade + 1, novo_contexto, selecao_meses, None, None)
 
-            # Montagem do Painel (Sem espaços no começo da linha para evitar Markdown Code Block)
+            # Montagem do Painel (Agora 100% responsivo ao tema do usuário)
             html_item = (
-                f"<details style='margin-bottom: 10px; border: 1px solid #d1d5db; border-radius: 8px; background-color: #ffffff; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.05);'>"
-                f"<summary style='padding: 14px; font-weight: bold; cursor: pointer; background-color: #fcfcfc; border-bottom: 1px solid #eee; font-family: sans-serif; font-size: 15px;'>"
-                f"{label_pref} {item} <span style='font-weight: normal; color: #555; margin-left: 10px;'>| Total Período: <span style='color: {cor_var}; font-weight: bold;'>{sinal_var}{format_brl(var_total)}</span></span>"
+                f"<details style='margin-bottom: 10px; border: 1px solid rgba(128,128,128,0.2); border-radius: 8px; background-color: transparent; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.05);'>"
+                f"<summary style='padding: 14px; font-weight: bold; cursor: pointer; background-color: var(--secondary-background-color); border-bottom: 1px solid rgba(128,128,128,0.2); font-family: sans-serif; font-size: 15px; color: var(--text-color);'>"
+                f"{label_pref} {item} <span style='font-weight: normal; opacity: 0.8; margin-left: 10px;'>| Total Período: <span style='color: {cor_var}; font-weight: bold;'>{sinal_var}{format_brl(var_total)}</span></span>"
                 f"</summary>"
-                f"<div style='padding: 20px; font-family: sans-serif;'>"
-                f"<div style='font-weight: bold; margin-bottom: 12px; font-size: 14px; color: #444;'>Variação Mensal YoY (Impacto no Resultado):</div>"
+                f"<div style='padding: 20px; font-family: sans-serif; color: var(--text-color);'>"
+                f"<div style='font-weight: bold; margin-bottom: 12px; font-size: 14px; opacity: 0.9;'>Variação Mensal YoY (Impacto no Resultado):</div>"
                 f"<div style='display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px;'>"
                 f"{html_meses}"
                 f"</div>"
-                f"<div style='border-left: 3px solid #e5e7eb; padding-left: 15px;'>"
+                f"<div style='border-left: 3px solid rgba(128,128,128,0.2); padding-left: 15px;'>"
                 f"{html_filhos}"
                 f"</div>"
                 f"</div>"
