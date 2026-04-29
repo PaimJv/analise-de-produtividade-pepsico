@@ -122,7 +122,7 @@ if pode_processar:
 
     # --- 🛑 TRAVA DO BOTÃO (AGUARDANDO GERAÇÃO) ---
     if selecao_meses == "AGUARDANDO":
-        st.info("👋 Ajuste os parâmetros na barra lateral e clique em **🚀 Gerar / Atualizar Relatório** para iniciar a análise.")
+        st.info("👋 Ajuste os parâmetros na barra lateral, clique em **🚀 Gerar / Atualizar Relatório** para iniciar a análise e aguarde.")
         st.stop() # Interrompe a execução da tela principal aqui até o botão ser clicado
 
     # --- 6. LÓGICA DE FILTRAGEM ---
@@ -258,7 +258,7 @@ if pode_processar:
                 st.rerun()
 
 else:
-    st.info("👋 Para começar, carregue os arquivos de dois anos diferentes na barra lateral.")
+    st.info("Para começar, carregue o(s) arquivo(s) com dois anos diferentes na barra lateral e aguarde o carregamento.")
     
 import gc
 gc.collect()
