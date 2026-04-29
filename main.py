@@ -245,6 +245,11 @@ if pode_processar:
             st.subheader(f"Resumo Mensal: {label_atual}")
             
             df_pivot = render_dynamic_table(df_active, atual_col, ano_at, ano_ant)
+            
+            # 🚀 NOVO: Remove o eixo "Mes" invisível para não quebrar o HTML e ajusta o nome da primeira coluna
+            df_pivot.columns.name = None
+            df_pivot.index.name = atual_col
+            
             cols_meses = [c for c in df_pivot.columns if c != 'Total Geral']
             cols_para_estilizar = cols_meses + ['Total Geral']
 

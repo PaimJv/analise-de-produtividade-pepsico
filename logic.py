@@ -11,7 +11,7 @@ def compilar_html_para_download(html_conteudo, titulo="Relatório de Produtivida
     """Envolve o conteúdo do relatório em um documento HTML com blocos minimizáveis e link funcional."""
     
     mapa_nomes = {
-        'Desc_Conta': 'Conta(s) contábil(is)',
+        'Desc_Conta': 'Conta(s) contábil(eis)',
         'P_L': 'Linha(s) de P&L',
         'VP': 'VP(s)',
         'Localidade': 'Localidade(s)',
@@ -20,7 +20,13 @@ def compilar_html_para_download(html_conteudo, titulo="Relatório de Produtivida
     }
     
     # 1. Tratamento das variáveis de contexto
-    meses_str = ", ".join([str(m) for m in sorted(meses)]) if meses and meses != "AGUARDANDO" else "Nenhum selecionado"
+    meses_abrev = {1:'Jan', 2:'Fev', 3:'Mar', 4:'Abr', 5:'Mai', 6:'Jun',
+                   7:'Jul', 8:'Ago', 9:'Set', 10:'Out', 11:'Nov', 12:'Dez'}
+    
+    if meses and meses != "AGUARDANDO":
+        meses_str = ", ".join([meses_abrev.get(int(m), str(m)) for m in sorted(meses)])
+    else:
+        meses_str = "Nenhum selecionado"
     
     html_itens_detalhados = ""
     if itens_disponiveis:
@@ -613,7 +619,22 @@ def compilar_html_para_download(html_conteudo, titulo="Relatório de Produtivida
         'Pacote': 'Pacote(s)'
     }
     
-    meses_str = ", ".join([str(m) for m in sorted(meses)]) if meses and meses != "AGUARDANDO" else "Nenhum selecionado"
+    # 1. Tratamento das variáveis de contexto
+    meses_abrev = {1:'Jan', 2:'Fev', 3:'Mar', 4:'Abr', 5:'Mai', 6:'Jun',
+                   7:'Jul', 8:'Ago', 9:'Set', 10:'Out', 11:'Nov', 12:'Dez'}
+    
+    if meses and meses != "AGUARDANDO":
+        nomes_meses = []
+        for m in sorted(meses):
+            try:
+                # O float() e int() garantem que "1", "1.0" ou 1.0 virem exatamente o inteiro 1
+                num_limpo = int(float(m)) 
+                nomes_meses.append(meses_abrev.get(num_limpo, str(m)))
+            except:
+                nomes_meses.append(str(m))
+        meses_str = ", ".join(nomes_meses)
+    else:
+        meses_str = "Visão Completa"
     
     html_itens_detalhados = ""
     if itens_disponiveis:
@@ -659,10 +680,13 @@ def compilar_html_para_download(html_conteudo, titulo="Relatório de Produtivida
             div[style*='border-radius: 5px'], div[style*='border-radius: 6px'] {{ background-color: #2a2a25 !important; border: 1px solid #444 !important; color: #fff !important; padding: 12px !important; }}
             
             /* CSS Específico para Tabelas do Pandas (Resumo Mensal) */
-            table {{ width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 13px; background-color: #1a1a1a; }}
-            th {{ background-color: #252525; padding: 12px; text-align: right; color: #aaa; border: 1px solid #333; }}
-            td {{ padding: 12px; border: 1px solid #333; text-align: right; }}
-            tr:hover {{ background-color: #222; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px; border: 1px solid #333; }}
+            thead {{ background-color: #151515; }}
+            thead th {{ padding: 12px; text-align: right; color: #aaa; border-bottom: 2px solid #333; font-weight: bold; }}
+            thead th:first-child {{ text-align: left; border-right: 1px solid #333; }} /* Cabeçalho da coluna de nomes */
+            tbody th {{ padding: 12px; text-align: left; color: #eee; border-bottom: 1px solid #2a2a2a; border-right: 1px solid #333; font-weight: normal; background-color: #1a1a1a; }} /* Nomes das contas/linhas */
+            tbody td {{ padding: 12px; border-bottom: 1px solid #2a2a2a; text-align: right; }}
+            # tbody tr:hover th, tbody tr:hover td {{ background-color: #252525 !important; }}
             
             .loader-mini {{ display: none; }}
         </style>
