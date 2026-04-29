@@ -601,8 +601,8 @@ def render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade=0,
         st.success("✅ Relatório detalhado renderizado com sucesso!")
         st.markdown(f"<div style='padding-bottom: 50px;'>{html_final}</div>", unsafe_allow_html=True)
 
-def compilar_html_para_download(html_conteudo, titulo="Relatório de Produtividade", foco="Análise 360° (Ambos)", itens_disponiveis=None, meses=None):
-    """Gera um arquivo HTML completo com CSS blindado e link de âncora funcional."""
+def compilar_html_para_download(html_conteudo, titulo="Relatório de Produtividade", foco="Análise 360° (Ambos)", itens_disponiveis=None, meses=None, html_destaques="", html_resumo=""):
+    """Gera um arquivo HTML com CSS blindado, link de âncora e blocos adicionais (Destaques e Tabela Pivot)."""
     
     mapa_nomes = {
         'Desc_Conta': 'Conta(s) contábil(is)',
@@ -613,7 +613,6 @@ def compilar_html_para_download(html_conteudo, titulo="Relatório de Produtivida
         'Pacote': 'Pacote(s)'
     }
     
-    # 1. Preparação das variáveis de contexto
     meses_str = ", ".join([str(m) for m in sorted(meses)]) if meses and meses != "AGUARDANDO" else "Nenhum selecionado"
     
     html_itens_detalhados = ""
@@ -634,7 +633,6 @@ def compilar_html_para_download(html_conteudo, titulo="Relatório de Produtivida
     if not html_itens_detalhados:
         html_itens_detalhados = "<div style='color: #aaa; font-size: 13px; padding-top: 10px;'>Visão completa da base.</div>"
 
-    # 2. Montagem do HTML (Note o uso de {{ }} no CSS para escapar as chaves do Python)
     html_completo = f"""
     <!DOCTYPE html>
     <html lang="pt-br">
@@ -651,15 +649,21 @@ def compilar_html_para_download(html_conteudo, titulo="Relatório de Produtivida
             .filters-grid {{ display: flex; flex-direction: column; gap: 8px; padding-top: 15px; border-top: 1px solid #333; }}
             .item-detail-box {{ margin-bottom: 0 !important; border: 1px solid #2a2a2a !important; border-radius: 6px !important; background-color: #1a1a1a !important; }}
             .item-detail-box summary {{ padding: 10px 15px !important; font-size: 13px !important; cursor: pointer; color: #aaa !important; }}
-            .item-detail-box[open] summary {{ border-bottom: 1px solid #2a2a2a !important; color: #60a5fa !important; }}
+            .item-detail-box[open] summary {{ color: #60a5fa !important; }}
             .item-content {{ padding: 12px 15px; font-size: 12px; color: #ccc; line-height: 1.6; background-color: #141414; border-radius: 0 0 6px 6px; }}
+            
+            /* CSS Global para Relatórios e Sanfonas */
             details {{ margin-bottom: 15px; border: 1px solid #333; border-radius: 8px; background-color: #1e1e1e; overflow: hidden; }}
             summary {{ padding: 16px; font-weight: bold; cursor: pointer; background-color: #252525; border-bottom: 1px solid #333; color: #fff; }}
             div[style*='display: flex'] {{ display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; }}
             div[style*='border-radius: 5px'], div[style*='border-radius: 6px'] {{ background-color: #2a2a25 !important; border: 1px solid #444 !important; color: #fff !important; padding: 12px !important; }}
-            table {{ width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px; }}
-            th {{ background-color: #252525; padding: 12px; text-align: left; color: #888; border-bottom: 2px solid #333; }}
-            td {{ padding: 12px; border-bottom: 1px solid #252525; }}
+            
+            /* CSS Específico para Tabelas do Pandas (Resumo Mensal) */
+            table {{ width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 13px; background-color: #1a1a1a; }}
+            th {{ background-color: #252525; padding: 12px; text-align: right; color: #aaa; border: 1px solid #333; }}
+            td {{ padding: 12px; border: 1px solid #333; text-align: right; }}
+            tr:hover {{ background-color: #222; }}
+            
             .loader-mini {{ display: none; }}
         </style>
     </head>
@@ -674,13 +678,15 @@ def compilar_html_para_download(html_conteudo, titulo="Relatório de Produtivida
                 <div><strong>Foco da Análise:</strong> {foco}</div>
                 <div><strong>Meses Analisados:</strong> {meses_str}</div>
             </div>
-            
             <div class="filters-grid">
                 {html_itens_detalhados}
             </div>
         </div>
 
-        <hr style="border: 0; border-top: 1px solid #333; margin-bottom: 40px;">
+        {html_destaques}
+        {html_resumo}
+        
+        <hr style="border: 0; border-top: 1px solid #333; margin-bottom: 40px; margin-top: 40px;">
         
         <div class="report-container">
             {html_conteudo}

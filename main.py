@@ -180,6 +180,10 @@ if pode_processar:
         # ------------------------------------------------------
         # TELA 2: MODO SAP ORIGINAL (INTOCADO)
         # ------------------------------------------------------
+        # 🚀 Zera os blocos secundários (caso não existam, o download ignora)
+        st.session_state.html_destaques = ""
+        st.session_state.html_resumo = ""
+        
         if st.session_state.aviso_incompleto:
             a = st.session_state.aviso_incompleto
             st.warning(f"⚠️ **Atenção:** O mês de **{a['mes_nome']}** está incompleto no relatório (registros apenas até o dia **{a['dia']}**).")
@@ -190,8 +194,29 @@ if pode_processar:
         if resumo_opps:
             with st.expander("💡 **Destaques de Produtividade YoY**", expanded=True):
                 st.markdown("Principais oportunidades de redução:")
+                lista_html_destaques = ""
+                
+                import re # Garantindo a biblioteca de texto
+                
                 for item in resumo_opps:
-                    st.write(item)
+                    st.write(item) # Mantém original na tela do Streamlit
+                    
+                    # 🚀 TRADUTOR MARKDOWN -> HTML
+                    item_html = re.sub(r'\*\*(.*?)\*\*', r'<strong style="color: #60a5fa;">\1</strong>', item)
+                    item_html = item_html.replace(r"R\$", "R$")
+                    
+                    lista_html_destaques += f"<li style='margin-bottom: 8px;'>{item_html}</li>"
+                
+                # 🚀 CAPTURA PARA DOWNLOAD
+                st.session_state.html_destaques = f"""
+                <details style='margin-bottom: 15px; border: 1px solid #333; border-radius: 8px; background-color: #1e1e1e;'>
+                    <summary style='padding: 16px; font-weight: bold; cursor: pointer; background-color: #252525; border-bottom: 1px solid #333; color: #fff;'>💡 Destaques de Produtividade YoY</summary>
+                    <div style='padding: 20px; font-family: sans-serif;'>
+                        <p style='color: #aaa; margin-top: 0;'>Principais oportunidades de redução:</p>
+                        <ul style='color: #ddd; font-size: 14px;'>{lista_html_destaques}</ul>
+                    </div>
+                </details>
+                """
         else:
             st.info("Nenhuma oportunidade de produtividade acima de R$ 1.000,00 identificada no período selecionado.")
 
@@ -223,12 +248,22 @@ if pode_processar:
             cols_meses = [c for c in df_pivot.columns if c != 'Total Geral']
             cols_para_estilizar = cols_meses + ['Total Geral']
 
-            # Exibição da Tabela Nativa (Sem a função de clique/seleção para manter a performance)
-            st.dataframe(
-                df_pivot.style.format(precision=2, decimal=',', thousands='.')
-                .map(apply_color_logic, subset=cols_para_estilizar),
-                use_container_width=True
-            )
+            # Aplicação das Cores via Pandas Styler
+            styler_colorido = df_pivot.style.format(precision=2, decimal=',', thousands='.').map(apply_color_logic, subset=cols_para_estilizar)
+
+            # Exibição na Tela
+            st.dataframe(styler_colorido, use_container_width=True)
+            
+            # 🚀 CAPTURA PARA DOWNLOAD (Gera o código HTML da Tabela com Cores)
+            tabela_html_crua = styler_colorido.to_html()
+            st.session_state.html_resumo = f"""
+            <details style='margin-bottom: 15px; border: 1px solid #333; border-radius: 8px; background-color: #1e1e1e;'>
+                <summary style='padding: 16px; font-weight: bold; cursor: pointer; background-color: #252525; border-bottom: 1px solid #333; color: #fff;'>📊 Resumo Mensal: {label_atual}</summary>
+                <div style='padding: 15px; overflow-x: auto;'>
+                    {tabela_html_crua}
+                </div>
+            </details>
+            """
 
             st.markdown("---")
             st.subheader("Resultados encontrados")
@@ -279,13 +314,18 @@ if 'ultimo_html_gerado' in st.session_state and st.session_state.ultimo_html_ger
                 if valores:
                     itens_disponiveis[col] = valores
         
-        # 3. Empacota tudo
+        # 3. Empacota tudo (Buscando também os Destaques e a Tabela Resumo)
+        html_dest = st.session_state.get('html_destaques', '')
+        html_resu = st.session_state.get('html_resumo', '')
+        
         html_para_baixar = compilar_html_para_download(
             st.session_state.ultimo_html_gerado,
             titulo=f"Produtividade YoY - {modo_selecionado}",
             foco=foco_res,
             itens_disponiveis=itens_disponiveis,
-            meses=selecao_meses
+            meses=selecao_meses,
+            html_destaques=html_dest,
+            html_resumo=html_resu
         )
         
         container_botao_download.download_button(
