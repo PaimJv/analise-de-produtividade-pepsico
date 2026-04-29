@@ -41,10 +41,13 @@ if 'dims_com_paridade' not in st.session_state:
 # --- 3. INTERFACE INICIAL ---
 st.title("Análise de produtividade YoY")
 st.caption("Observação e destaque de oportunidades de redução de custo na PepsiCo.")
+
+# 🚀 ESPAÇO RESERVADO NO TOPO PARA O BOTÃO DE DOWNLOAD
+container_botao_download = st.empty()
 st.markdown("---")
 
-# --- 3. INTERFACE INICIAL ---
 uploaded_files, modo_selecionado = render_initial_sidebar()
+
 
 # Regra de Validação Dinâmica
 pode_processar = False
@@ -122,7 +125,7 @@ if pode_processar:
 
     # --- 🛑 TRAVA DO BOTÃO (AGUARDANDO GERAÇÃO) ---
     if selecao_meses == "AGUARDANDO":
-        st.info("👋 Ajuste os parâmetros na barra lateral, clique em **🚀 Gerar / Atualizar Relatório** para iniciar a análise e aguarde.")
+        st.info("Ajuste os parâmetros na barra lateral, clique em **🚀 Gerar / Atualizar Relatório** para iniciar a análise e aguarde.")
         st.stop() # Interrompe a execução da tela principal aqui até o botão ser clicado
 
     # --- 6. LÓGICA DE FILTRAGEM ---
@@ -260,5 +263,40 @@ if pode_processar:
 else:
     st.info("Para começar, carregue o(s) arquivo(s) com dois anos diferentes na barra lateral e aguarde o carregamento.")
     
+# 🚀 PREENCHE A CAIXA VAZIA NO TOPO COM O BOTÃO DE DOWNLOAD
+if 'ultimo_html_gerado' in st.session_state and st.session_state.ultimo_html_gerado:
+    try:
+        from logic import compilar_html_para_download
+        
+        # 1. Lista as colunas que queremos mostrar (excluíndo materiais propositalmente)
+        colunas_metadados = ['Desc_Conta', 'P_L', 'VP', 'Localidade', 'Centro_Custo', 'Pacote']
+        
+        # 2. Faz um raio-X no df_filtrado para descobrir exatamente o que está no relatório
+        itens_disponiveis = {}
+        for col in colunas_metadados:
+            if col in df_filtrado.columns:
+                valores = sorted([str(x) for x in df_filtrado[col].dropna().unique() if str(x).strip() != ""])
+                if valores:
+                    itens_disponiveis[col] = valores
+        
+        # 3. Empacota tudo
+        html_para_baixar = compilar_html_para_download(
+            st.session_state.ultimo_html_gerado,
+            titulo=f"Produtividade YoY - {modo_selecionado}",
+            foco=foco_res,
+            itens_disponiveis=itens_disponiveis,
+            meses=selecao_meses
+        )
+        
+        container_botao_download.download_button(
+            label="📥 Baixar Relatório Atual (HTML Offline)",
+            data=html_para_baixar,
+            file_name=f"pepsico_produtividade_yoy.html",
+            mime="text/html",
+            use_container_width=True
+        )
+    except Exception as e:
+        pass # Segurança caso haja erro na compilação
+
 import gc
 gc.collect()

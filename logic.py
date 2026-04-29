@@ -7,6 +7,94 @@ import json, os
 import io
 from utils import mapeamento, get_yoy_data
 
+def compilar_html_para_download(html_conteudo, titulo="Relatório de Produtividade", foco="Análise 360° (Ambos)", itens_disponiveis=None, meses=None):
+    """Envolve o conteúdo do relatório em um documento HTML com blocos minimizáveis e link funcional."""
+    
+    mapa_nomes = {
+        'Desc_Conta': 'Conta(s) contábil(is)',
+        'P_L': 'Linha(s) de P&L',
+        'VP': 'VP(s)',
+        'Localidade': 'Localidade(s)',
+        'Centro_Custo': 'Centro(s) de Custo',
+        'Pacote': 'Pacote(s)'
+    }
+    
+    # 1. Tratamento das variáveis de contexto
+    meses_str = ", ".join([str(m) for m in sorted(meses)]) if meses and meses != "AGUARDANDO" else "Nenhum selecionado"
+    
+    html_itens_detalhados = ""
+    if itens_disponiveis:
+        for col, valores in itens_disponiveis.items():
+            if valores: 
+                nome_amigavel = mapa_nomes.get(col, col)
+                valores_str = ", ".join([str(v) for v in valores])
+                qtd = len(valores)
+                
+                html_itens_detalhados += f"""
+                <details class="item-detail-box">
+                    <summary>▸ <strong>{nome_amigavel}</strong> <span style="opacity: 0.6; font-size: 11px; margin-left: 5px;">({qtd} itens)</span></summary>
+                    <div class="item-content">{valores_str}</div>
+                </details>
+                """
+
+    if not html_itens_detalhados:
+        html_itens_detalhados = "<div style='color: #aaa; font-size: 13px; padding-top: 10px;'>Visão completa da base (sem dimensões detalhadas aplicadas).</div>"
+
+    # 2. Montagem do HTML Final (Note as chaves duplas no CSS para evitar erros de renderização)
+    html_completo = f"""
+    <!DOCTYPE html>
+    <html lang="pt-br">
+    <head>
+        <meta charset="UTF-8">
+        <title>{titulo}</title>
+        <style>
+            body {{ font-family: 'Segoe UI', Arial, sans-serif; padding: 40px; background-color: #121212; color: #e0e0e0; line-height: 1.6; }}
+            h1 {{ color: #ffffff; margin-bottom: 5px; font-weight: bold; }}
+            .brand-sub {{ color: #888; font-size: 14px; margin-top: 0; margin-bottom: 30px; }}
+            .metadata-box {{ background-color: #1e1e1e; padding: 20px; border-radius: 12px; border: 1px solid #333; margin-bottom: 30px; }}
+            .metadata-box .summary-line {{ display: flex; gap: 40px; margin-bottom: 15px; font-size: 15px; }}
+            .metadata-box strong {{ color: #60a5fa; margin-right: 8px; }}
+            .filters-grid {{ display: flex; flex-direction: column; gap: 8px; padding-top: 15px; border-top: 1px solid #333; }}
+            .item-detail-box {{ margin-bottom: 0 !important; border: 1px solid #2a2a2a !important; border-radius: 6px !important; background-color: #1a1a1a !important; }}
+            .item-detail-box summary {{ padding: 10px 15px !important; font-size: 13px !important; cursor: pointer; color: #aaa !important; }}
+            .item-detail-box[open] summary {{ color: #60a5fa !important; }}
+            .item-content {{ padding: 12px 15px; font-size: 12px; color: #ccc; background-color: #141414; }}
+            details {{ margin-bottom: 15px; border: 1px solid #333; border-radius: 8px; background-color: #1e1e1e; overflow: hidden; }}
+            summary {{ padding: 16px; font-weight: bold; cursor: pointer; background-color: #252525; color: #fff; }}
+            div[style*='display: flex'] {{ display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; }}
+            div[style*='border-radius: 5px'], div[style*='border-radius: 6px'] {{ background-color: #2a2a25 !important; border: 1px solid #444 !important; color: #fff !important; padding: 12px !important; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px; }}
+            th {{ background-color: #252525; padding: 12px; text-align: left; color: #888; border-bottom: 2px solid #333; }}
+            td {{ padding: 12px; border-bottom: 1px solid #252525; }}
+        </style>
+    </head>
+    <body>
+        <h1>{titulo}</h1>
+        <p class="brand-sub">
+            Extraído do <a href="https://paimjv.github.io/analise-de-produtividade-pepsico/" target="_blank" style="color: #60a5fa; text-decoration: none; font-weight: bold;">Dashboard de Produtividade PepsiCo</a> • Exportação Estática
+        </p>
+        
+        <div class="metadata-box">
+            <div class="summary-line">
+                <div><strong>Foco da Análise:</strong> {foco}</div>
+                <div><strong>Meses Analisados:</strong> {meses_str}</div>
+            </div>
+            
+            <div class="filters-grid">
+                {html_itens_detalhados}
+            </div>
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid #333; margin-bottom: 40px;">
+        
+        <div class="report-container">
+            {html_conteudo}
+        </div>
+    </body>
+    </html>
+    """
+    return html_completo
+
 def get_base_path():
     """Retorna o caminho absoluto da pasta onde o programa (ou .exe) está fisicamente localizado."""
     if getattr(sys, 'frozen', False):
@@ -500,6 +588,8 @@ def render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade=0,
         html_final = _gerar_html_sap_recursivo(
             df_master, dims, ano_at, ano_ant, foco_res, 0, {}, selecao_meses, aviso_texto, barra_progresso
         )
+        
+        st.session_state.ultimo_html_gerado = html_final
 
     # 3. Limpa a barra de progresso da tela quando o trabalho terminar
     aviso_texto.empty()
@@ -511,6 +601,94 @@ def render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade=0,
         st.success("✅ Relatório detalhado renderizado com sucesso!")
         st.markdown(f"<div style='padding-bottom: 50px;'>{html_final}</div>", unsafe_allow_html=True)
 
+def compilar_html_para_download(html_conteudo, titulo="Relatório de Produtividade", foco="Análise 360° (Ambos)", itens_disponiveis=None, meses=None):
+    """Gera um arquivo HTML completo com CSS blindado e link de âncora funcional."""
+    
+    mapa_nomes = {
+        'Desc_Conta': 'Conta(s) contábil(is)',
+        'P_L': 'Linha(s) de P&L',
+        'VP': 'VP(s)',
+        'Localidade': 'Localidade(s)',
+        'Centro_Custo': 'Centro(s) de Custo',
+        'Pacote': 'Pacote(s)'
+    }
+    
+    # 1. Preparação das variáveis de contexto
+    meses_str = ", ".join([str(m) for m in sorted(meses)]) if meses and meses != "AGUARDANDO" else "Nenhum selecionado"
+    
+    html_itens_detalhados = ""
+    if itens_disponiveis:
+        for col, valores in itens_disponiveis.items():
+            if valores: 
+                nome_amigavel = mapa_nomes.get(col, col)
+                valores_str = ", ".join([str(v) for v in valores])
+                qtd = len(valores)
+                
+                html_itens_detalhados += f"""
+                <details class="item-detail-box">
+                    <summary>▸ <strong>{nome_amigavel}</strong> <span style="opacity: 0.6; font-size: 11px; margin-left: 5px;">({qtd} itens)</span></summary>
+                    <div class="item-content">{valores_str}</div>
+                </details>
+                """
+
+    if not html_itens_detalhados:
+        html_itens_detalhados = "<div style='color: #aaa; font-size: 13px; padding-top: 10px;'>Visão completa da base.</div>"
+
+    # 2. Montagem do HTML (Note o uso de {{ }} no CSS para escapar as chaves do Python)
+    html_completo = f"""
+    <!DOCTYPE html>
+    <html lang="pt-br">
+    <head>
+        <meta charset="UTF-8">
+        <title>{titulo}</title>
+        <style>
+            body {{ font-family: 'Segoe UI', Arial, sans-serif; padding: 40px; background-color: #121212; color: #e0e0e0; line-height: 1.6; }}
+            h1 {{ color: #ffffff; margin-bottom: 5px; font-weight: bold; }}
+            .brand-sub {{ color: #888; font-size: 14px; margin-top: 0; margin-bottom: 30px; }}
+            .metadata-box {{ background-color: #1e1e1e; padding: 20px; border-radius: 12px; border: 1px solid #333; margin-bottom: 30px; }}
+            .metadata-box .summary-line {{ display: flex; gap: 40px; margin-bottom: 15px; font-size: 15px; }}
+            .metadata-box strong {{ color: #60a5fa; margin-right: 8px; }}
+            .filters-grid {{ display: flex; flex-direction: column; gap: 8px; padding-top: 15px; border-top: 1px solid #333; }}
+            .item-detail-box {{ margin-bottom: 0 !important; border: 1px solid #2a2a2a !important; border-radius: 6px !important; background-color: #1a1a1a !important; }}
+            .item-detail-box summary {{ padding: 10px 15px !important; font-size: 13px !important; cursor: pointer; color: #aaa !important; }}
+            .item-detail-box[open] summary {{ border-bottom: 1px solid #2a2a2a !important; color: #60a5fa !important; }}
+            .item-content {{ padding: 12px 15px; font-size: 12px; color: #ccc; line-height: 1.6; background-color: #141414; border-radius: 0 0 6px 6px; }}
+            details {{ margin-bottom: 15px; border: 1px solid #333; border-radius: 8px; background-color: #1e1e1e; overflow: hidden; }}
+            summary {{ padding: 16px; font-weight: bold; cursor: pointer; background-color: #252525; border-bottom: 1px solid #333; color: #fff; }}
+            div[style*='display: flex'] {{ display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; }}
+            div[style*='border-radius: 5px'], div[style*='border-radius: 6px'] {{ background-color: #2a2a25 !important; border: 1px solid #444 !important; color: #fff !important; padding: 12px !important; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px; }}
+            th {{ background-color: #252525; padding: 12px; text-align: left; color: #888; border-bottom: 2px solid #333; }}
+            td {{ padding: 12px; border-bottom: 1px solid #252525; }}
+            .loader-mini {{ display: none; }}
+        </style>
+    </head>
+    <body>
+        <h1>{titulo}</h1>
+        <p class="brand-sub">
+            Extraído do <a href="https://paimjv.github.io/analise-de-produtividade-pepsico/" target="_blank" style="color: #60a5fa; text-decoration: none; font-weight: bold;">Dashboard de Produtividade PepsiCo</a> • Exportação Estática
+        </p>
+        
+        <div class="metadata-box">
+            <div class="summary-line">
+                <div><strong>Foco da Análise:</strong> {foco}</div>
+                <div><strong>Meses Analisados:</strong> {meses_str}</div>
+            </div>
+            
+            <div class="filters-grid">
+                {html_itens_detalhados}
+            </div>
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid #333; margin-bottom: 40px;">
+        
+        <div class="report-container">
+            {html_conteudo}
+        </div>
+    </body>
+    </html>
+    """
+    return html_completo
 
 def _gerar_html_sap_recursivo(df_nivel, dims, ano_at, ano_ant, foco_res, profundidade, filtro_contexto, selecao_meses, text_ui, progress_ui):
     """Motor de geração de HTML puro para o SAP, evitando gargalos do Streamlit Markdown."""

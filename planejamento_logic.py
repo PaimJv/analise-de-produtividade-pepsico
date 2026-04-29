@@ -207,21 +207,29 @@ def render_planejamento_ui(df_nivel, dims, profundidade=0, filtro_contexto=None)
     """Função de renderização otimizada com Pré-cálculo e Batching."""
     foco_analise = st.session_state.get('radio_foco_ia', 'Análise 360° (Ambos)')
     
+    # 🚀 Limpa o HTML antigo da memória antes de iniciar
+    st.session_state.ultimo_html_gerado = ""
+    
     msg_topo = st.empty()
     aviso_texto = st.empty()
     barra_progresso = st.progress(0)
     
     with st.spinner("Otimizando tabelas e renderizando visão executiva..."):
-        with st.expander("Detalhamento do processamento", expanded=False):
-            st.write("Agrupando dimensões...")
+        # with st.expander("Detalhamento do processamento", expanded=False):
+        #     st.write("Agrupando dimensões...")
             
         lookup_df = df_nivel.groupby(dims + ['Tipo_Dado'], observed=True, as_index=False)[
             ['Valor_YTD', 'Valor_BOY', 'Valor_FY']
         ].sum()
         
+        acumulador_html = []
+        
         teve_dados = _gerar_html_alta_performance(
-            lookup_df, dims, 0, {}, foco_analise, aviso_texto, barra_progresso
+            lookup_df, dims, 0, {}, foco_analise, aviso_texto, barra_progresso, acumulador_html
         )
+        
+        if acumulador_html:
+            st.session_state.ultimo_html_gerado = "".join(acumulador_html)
         
     aviso_texto.empty()
     barra_progresso.empty()
@@ -231,8 +239,8 @@ def render_planejamento_ui(df_nivel, dims, profundidade=0, filtro_contexto=None)
     else:
         msg_topo.success("✅ Relatório gerado com sucesso!")
 
-def _gerar_html_alta_performance(df_lookup, dims, profundidade, filtro_contexto, foco_analise, text_ui=None, progress_ui=None):
-    """Motor que utiliza tabelas de busca para renderização instantânea (Modo Escuro Ativo)."""
+def _gerar_html_alta_performance(df_lookup, dims, profundidade, filtro_contexto, foco_analise, text_ui=None, progress_ui=None, acumulador_html=None):
+    """Motor que utiliza tabelas de busca para renderização instantânea."""
     if not dims or profundidade >= len(dims):
         return ""
 
@@ -280,7 +288,6 @@ def _gerar_html_alta_performance(df_lookup, dims, profundidade, filtro_contexto,
 
         encontrou_dados = True
         
-        # 🚀 Cores que funcionam perfeitamente em temas claros e escuros
         cor_var = '#ff4b4b' if var_2025 > 0 else '#09ab3b' if var_2025 < 0 else 'var(--text-color)'
         sinal_var = '+' if var_2025 > 0 else ''
         label_pref = '📌' if profundidade == 0 else '➥'
@@ -289,7 +296,6 @@ def _gerar_html_alta_performance(df_lookup, dims, profundidade, filtro_contexto,
         novo_contexto[col] = item
         html_filhos = _gerar_html_alta_performance(df_temp, dims, profundidade + 1, novo_contexto, foco_analise)
 
-        # 🚀 HTML Responsivo: Usa a cor de fundo e de texto do próprio sistema (var(--...))
         html_item = (
             f"<details style='margin-bottom: 8px; border: 1px solid rgba(128,128,128,0.2); border-radius: 8px; background-color: transparent;'>"
             f"<summary style='padding: 12px; font-weight: bold; cursor: pointer; font-family: sans-serif; font-size: 14px; color: var(--text-color); background-color: var(--secondary-background-color); border-bottom: 1px solid rgba(128,128,128,0.2);'>"
@@ -321,11 +327,15 @@ def _gerar_html_alta_performance(df_lookup, dims, profundidade, filtro_contexto,
         batch_html.append(html_item)
         
         if profundidade == 0 and len(batch_html) >= 10:
-            st.markdown("".join(batch_html), unsafe_allow_html=True)
+            chunk = "".join(batch_html)
+            st.markdown(chunk, unsafe_allow_html=True)
+            if acumulador_html is not None: acumulador_html.append(chunk) # 🚀 Anexa bloco gerado
             batch_html = []
 
     if profundidade == 0 and batch_html:
-        st.markdown("".join(batch_html), unsafe_allow_html=True)
+        chunk = "".join(batch_html)
+        st.markdown(chunk, unsafe_allow_html=True)
+        if acumulador_html is not None: acumulador_html.append(chunk) # 🚀 Anexa o restante
         return encontrou_dados
     
     return "".join(batch_html)
