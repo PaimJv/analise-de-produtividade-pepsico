@@ -580,32 +580,35 @@ def prepare_report_data(df, dims, ano_at, ano_ant):
     return agrupado, dims_com_paridade
 
 def render_report_ui(df_master, dims, ano_at, ano_ant, foco_res, profundidade=0, filtro_contexto=None, selecao_meses=None):
-    """Relatório ultrarrápido em HTML puro com animação de carregamento (Modo SAP)."""
+    """Relatório ultrarrápido em HTML puro com renderização em blocos (Modo SAP)."""
     if not dims:
         st.warning("Nenhuma dimensão de análise (P&L, VP, etc.) foi encontrada nos arquivos.")
         return
 
-    # 1. Cria os espaços reservados para a Animação na tela
     aviso_texto = st.empty()
     barra_progresso = st.progress(0)
 
     with st.spinner("Construindo painéis gerenciais na memória do navegador..."):
-        # 2. Chama o motor recursivo blindado em HTML
-        html_final = _gerar_html_sap_recursivo(
-            df_master, dims, ano_at, ano_ant, foco_res, 0, {}, selecao_meses, aviso_texto, barra_progresso
+        
+        acumulador_html = [] # 🚀 NOVO: Coletor de blocos para não estourar a memória
+        
+        teve_dados = _gerar_html_sap_recursivo(
+            df_master, dims, ano_at, ano_ant, foco_res, 0, {}, selecao_meses, aviso_texto, barra_progresso, acumulador_html
         )
         
-        st.session_state.ultimo_html_gerado = html_final
+        if acumulador_html:
+            st.session_state.ultimo_html_gerado = "".join(acumulador_html)
+        else:
+            st.session_state.ultimo_html_gerado = ""
 
-    # 3. Limpa a barra de progresso da tela quando o trabalho terminar
     aviso_texto.empty()
     barra_progresso.empty()
 
-    if html_final.strip() == "":
+    if not teve_dados:
         st.info("Nenhum registro atende aos critérios de foco selecionados.")
     else:
         st.success("✅ Relatório detalhado renderizado com sucesso!")
-        st.markdown(f"<div style='padding-bottom: 50px;'>{html_final}</div>", unsafe_allow_html=True)
+        st.markdown("<div style='padding-bottom: 50px;'></div>", unsafe_allow_html=True)
 
 def compilar_html_para_download(html_conteudo, titulo="Relatório de Produtividade", foco="Análise 360° (Ambos)", itens_disponiveis=None, meses=None, html_destaques="", html_resumo=""):
     """Gera um arquivo HTML com CSS blindado, link de âncora e blocos adicionais (Destaques e Tabela Pivot)."""
@@ -720,8 +723,8 @@ def compilar_html_para_download(html_conteudo, titulo="Relatório de Produtivida
     """
     return html_completo
 
-def _gerar_html_sap_recursivo(df_nivel, dims, ano_at, ano_ant, foco_res, profundidade, filtro_contexto, selecao_meses, text_ui, progress_ui):
-    """Motor de geração de HTML puro para o SAP, evitando gargalos do Streamlit Markdown."""
+def _gerar_html_sap_recursivo(df_nivel, dims, ano_at, ano_ant, foco_res, profundidade, filtro_contexto, selecao_meses, text_ui, progress_ui, acumulador_html=None):
+    """Motor de geração de HTML com Batching para evitar estouro de memória."""
     if profundidade >= len(dims):
         return ""
 
@@ -729,16 +732,11 @@ def _gerar_html_sap_recursivo(df_nivel, dims, ano_at, ano_ant, foco_res, profund
                    7:'Jul', 8:'Ago', 9:'Set', 10:'Out', 11:'Nov', 12:'Dez'}
 
     col = dims[profundidade]
-    html_completo = ""
 
-    # Filtra a base
     if filtro_contexto:
         for c, v in filtro_contexto.items():
             df_nivel = df_nivel.xs(v, level=c, drop_level=False)
 
-    # =========================================================
-    # 🟢 NÍVEL FINAL: MATERIAIS (Tabelas HTML leves)
-    # =========================================================
     if col == 'Desc_Material':
         html_mat = "<div style='margin-bottom: 10px; font-size: 16px; font-weight: bold; color: var(--text-color); border-bottom: 2px solid rgba(128,128,128,0.2); padding-bottom: 5px;'>📦 Balanço Detalhado por Material</div>"
 
@@ -770,15 +768,14 @@ def _gerar_html_sap_recursivo(df_nivel, dims, ano_at, ano_ant, foco_res, profund
 
         return html_mat
 
-    # =========================================================
-    # 🔵 NÍVEIS DE GESTÃO (Contas, Localidades, etc.)
-    # =========================================================
     itens = sorted(df_nivel.index.get_level_values(col).unique().astype(str).tolist())
     total_itens = len(itens)
 
+    encontrou_dados = False
+    batch_html = [] # 🚀 NOVO: Lista temporária para o batching
+    
     for idx, item in enumerate(itens):
         
-        # 🔄 MOTOR DE ANIMAÇÃO (Atualiza apenas na Dimensão Mestre)
         if profundidade == 0 and text_ui is not None and progress_ui is not None:
             porcentagem = int(((idx + 1) / total_itens) * 100)
             text_ui.info(f"⏳ Processando bloco SAP: **{item}** ({idx + 1}/{total_itens})")
@@ -804,12 +801,11 @@ def _gerar_html_sap_recursivo(df_nivel, dims, ano_at, ano_ant, foco_res, profund
             sub_impacto = df_item['Delta'].groupby(level=dims[profundidade+1]).sum().apply(meets_foco).any()
 
         if meets_foco(var_total) or sub_impacto:
-            # 🚀 Cores dinâmicas e mais vibrantes para ler bem tanto no claro quanto escuro
+            encontrou_dados = True
             cor_var = '#ff4b4b' if var_total > 0 else '#09ab3b' if var_total < 0 else 'var(--text-color)'
             sinal_var = '+' if var_total > 0 else ''
             label_pref = '📌' if profundidade == 0 else '➥'
 
-            # Construção dos Cards Mensais em HTML
             html_meses = ""
             for m_num in delta_mensal.index:
                 val_mes = delta_mensal[m_num]
@@ -818,12 +814,10 @@ def _gerar_html_sap_recursivo(df_nivel, dims, ano_at, ano_ant, foco_res, profund
                 nome_m = meses_nomes.get(int(m_num), f"Mês {m_num}")
                 html_meses += f"<div style='background-color: var(--secondary-background-color); border: 1px solid rgba(128,128,128,0.2); border-radius: 6px; padding: 10px; min-width: 110px; text-align: center; flex: 1;'><div style='font-size: 12px; color: var(--text-color); opacity: 0.8; margin-bottom: 4px;'>{nome_m}</div><div style='font-size: 14px; font-weight: bold; color: {cor_mes};'>{sin_mes}{format_brl(val_mes)}</div></div>"
 
-            # Recursão antecipada para os filhos
             novo_contexto = (filtro_contexto or {}).copy()
             novo_contexto[col] = item
-            html_filhos = _gerar_html_sap_recursivo(df_nivel, dims, ano_at, ano_ant, foco_res, profundidade + 1, novo_contexto, selecao_meses, None, None)
+            html_filhos = _gerar_html_sap_recursivo(df_nivel, dims, ano_at, ano_ant, foco_res, profundidade + 1, novo_contexto, selecao_meses, None, None, acumulador_html)
 
-            # Montagem do Painel (Agora 100% responsivo ao tema do usuário)
             html_item = (
                 f"<details style='margin-bottom: 10px; border: 1px solid rgba(128,128,128,0.2); border-radius: 8px; background-color: transparent; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.05);'>"
                 f"<summary style='padding: 14px; font-weight: bold; cursor: pointer; background-color: var(--secondary-background-color); border-bottom: 1px solid rgba(128,128,128,0.2); font-family: sans-serif; font-size: 15px; color: var(--text-color);'>"
@@ -840,6 +834,24 @@ def _gerar_html_sap_recursivo(df_nivel, dims, ano_at, ano_ant, foco_res, profund
                 f"</div>"
                 f"</details>"
             )
-            html_completo += html_item
+            
+            batch_html.append(html_item)
+            
+            # 🚀 NOVO: RENDERIZA NA TELA EM LOTES DE 10
+            if profundidade == 0 and len(batch_html) >= 10:
+                chunk = "".join(batch_html)
+                st.markdown(chunk, unsafe_allow_html=True)
+                if acumulador_html is not None:
+                    acumulador_html.append(chunk)
+                batch_html = []
 
-    return html_completo
+    # 🚀 NOVO: Finaliza e retorna dependendo do nível da árvore
+    if profundidade == 0:
+        if batch_html:
+            chunk = "".join(batch_html)
+            st.markdown(chunk, unsafe_allow_html=True)
+            if acumulador_html is not None:
+                acumulador_html.append(chunk)
+        return encontrou_dados
+    else:
+        return "".join(batch_html)
